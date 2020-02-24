@@ -15,14 +15,14 @@ It has been hugely modified to be a fairly complete web camera server with the f
   - Recording times can be set from 10 to 300 seconds
   - Motion detection is available if a PIR motion sensor is connected to GPIO3 (U0RXD)
     (after the firmware is uploaded). 
-    Motion detection is checked every second and starts checking again one minute
-    after a trigger, so if you don't want any gaps in motion detected videos, set 
-    recording time to 60 seconds.
     Motion detection can trigger the following actions:
     - Take a picture.
     - Take a picture and email it.
     - Make a video.
     - Make a video and send an email with name of video.   
+  - Motion detection is checked every second and starts checking again one minute
+    after a trigger, so if you don't want any gaps in motion detected videos, set 
+    recording time to 60 seconds.
   - Normal web traffic is on port 80, streaming comes from port 90. If accessing from 
     outside the local network, forward port X to 80 and port X+10 to port 90.
   - The original included FTP server was removed since files can now be managed through
