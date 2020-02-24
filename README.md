@@ -19,7 +19,7 @@ It has been hugely modified to be a fairly complete web camera server with the f
     - Take a picture.
     - Take a picture and email it.
     - Make a video.
-    - Make a video and send an email with name of video.
+    - Make a video and send an email with name of video.   
     Motion detection is checked every second and starts checking again one minute
     after a trigger, so if you don't want any gaps in motion detected videos, set 
     recording time to 60 seconds.
