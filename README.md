@@ -4,7 +4,7 @@ ESP32-CAM Video Recorder
 
 02/20/2020 Ed Williams 
 
-This version of the ESP32-CAM Video Recorder is built on the work of many other listed below.
+This version of the ESP32-CAM Video Recorder is built on the work of many other listed in the sketch.
 It has been hugely modified to be a fairly complete web camera server with the following capabilities:
   - Record AVI video and peak, stream, download or delete the saved videos.
   - Take JPG pictures and view, download or delete the saved pictures.
