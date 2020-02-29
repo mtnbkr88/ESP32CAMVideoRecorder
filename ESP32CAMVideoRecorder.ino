@@ -5,8 +5,8 @@ ESP32-CAM Video Recorder
 02/20/2020 Ed Williams 
 
 This version of the ESP32-CAM Video Recorder is built on the work of many other listed below.
-This version has been hugely modified to be a fairly complete web camera server with the 
-following capabilities:
+It has been hugely modified to be a fairly complete web camera server with the following
+capabilities:
   - Record AVI video and peak, stream, download or delete the saved videos.
   - Take JPG pictures and view, download or delete the saved pictures.
   - Up to 250 videos and 250 pictures can be saved on the SD card. Beyond that as more
@@ -1773,91 +1773,22 @@ void do_time() {
 // 
 void process_motionDetection() {
   Serial.print("Motion detected and action will be "); Serial.println( motionDetect );
-  if (  motionDetect == 10 || motionDetect == 11 ) { // take a picture
-    // build name for new jpg file
-    time(&now);
-    localtime_r(&now, &timeinfo);
- 
-    strftime(strftime_buf, sizeof(strftime_buf), "%F_%H_%M_%S", &timeinfo);
+  // get a camera frame buffer and make sure it has something to see
+  camera_fb_t * fb = NULL;
+  xSemaphoreTake( baton, portMAX_DELAY );
+  fb = esp_camera_fb_get();
 
-    char fname[100];
-
-    sprintf(fname, "/sdcard/%s.jpg", strftime_buf);
-    Serial.print("\nFile name is > "); Serial.print(fname); Serial.println(" <");
-
-    // open new jpg file for write
-    jpgfile = fopen(fname, "w");
-    if (jpgfile != NULL)  {
-      //Serial.printf("File open: %s\n", fname);
-    }  else  {
-      Serial.println("Could not open file");
-      major_fail();
-    }
-
-    // only keep MAX_JPG_Files_On_SD 
-    jpg_file_count++;
-    if ( jpg_file_count > MAX_JPG_Files_On_SD ) {
-      // delete oldest file
-      if( SD_MMC.exists( jpg_filenames[jpg_oldest_index] )) {
-        SD_MMC.remove( jpg_filenames[jpg_oldest_index] );
-      }
-      jpg_file_count--;
-      strcpy(jpg_filenames[jpg_oldest_index], "");
-      jpg_oldest_index++;
-      if (jpg_oldest_index == MAX_JPG_Files_On_SD)
-        jpg_oldest_index = 0;
-    }
-    Serial.println( "Number of JPG files on SD card is " + String(jpg_file_count) + "\n" );
-    if ( jpg_file_count > 1 )
-      jpg_newest_index++;
-    if ( jpg_newest_index == MAX_JPG_Files_On_SD )
-      jpg_newest_index = 0;
-    strcpy(jpg_filenames[jpg_newest_index],fname+7);
-
-    // get a camera frame to save as jpg
-    camera_fb_t * fb = NULL;
-    esp_err_t res = ESP_OK;
-    xSemaphoreTake( baton, portMAX_DELAY );
-    fb = esp_camera_fb_get();
-
-    if (!fb) {
-      xSemaphoreGive( baton );
-      fclose(jpgfile);
-      Serial.println("Failed to get frame from camera");
-      major_fail();
-    }
-
-    // save the frame to the jpg file
-    size_t err = fwrite(fb->buf, 1, fb->len, jpgfile);
+  if (!fb) {
+    xSemaphoreGive( baton );
+    Serial.println("Failed to get frame from camera");
+    major_fail();
+  }
+  if ( fb->len < 12000 ) { // dont save files smaller than 10K, they are usually blank
     esp_camera_fb_return(fb);
     xSemaphoreGive( baton );
-    fclose(jpgfile);
-    if (err == 0 ) {
-      Serial.println("Error on jpg write");
-      major_fail();
-    }
-    Serial.println("Motion detected picture taken");
-    delay(3);
-
-    if (  motionDetect == 11 ) {  // email the picture
-      SendEmail e(emailhost, emailport, emailsendaddr, emailsendpwd, 5000, true); 
-      // Send Email
-      char send[40];
-      sprintf(send,"\<%s\>", emailsendaddr);
-      char recv[40];
-      sprintf(recv,"\<%s\>", email);
-      if ( e.send(send, recv, "Camera Event Detected", "Please see attachment", jpg_filenames[jpg_newest_index]) ) {
-        Serial.println("Motion detected email sent with a picture");
-      } else {
-        Serial.println("Failed to send motion detected email with a picture");
-      }
-    }
-  }
-  if (  motionDetect == 12 || motionDetect == 13 ) { // take a video
-    // turn on recording (might already be recording)
-    recording = 1;
-    if ( motionDetect == 13 ) { // send an email with preliminary name of video
-      delay(1000);
+    Serial.println("Skipping motion action, camera buffer has nothing interesting to show");
+  } else {
+    if (  motionDetect == 10 || motionDetect == 11 ) { // take a picture
       // build name for new jpg file
       time(&now);
       localtime_r(&now, &timeinfo);
@@ -1869,7 +1800,7 @@ void process_motionDetection() {
       sprintf(fname, "/sdcard/%s.jpg", strftime_buf);
       Serial.print("\nFile name is > "); Serial.print(fname); Serial.println(" <");
 
-      // open new jpg file for write
+     // open new jpg file for write
       jpgfile = fopen(fname, "w");
       if (jpgfile != NULL)  {
         //Serial.printf("File open: %s\n", fname);
@@ -1898,19 +1829,6 @@ void process_motionDetection() {
         jpg_newest_index = 0;
       strcpy(jpg_filenames[jpg_newest_index],fname+7);
 
-      // get a camera frame to save as jpg
-      camera_fb_t * fb = NULL;
-      esp_err_t res = ESP_OK;
-      xSemaphoreTake( baton, portMAX_DELAY );
-      fb = esp_camera_fb_get();
-
-      if (!fb) {
-        xSemaphoreGive( baton );
-        fclose(jpgfile);
-        Serial.println("Failed to get frame from camera");
-        major_fail();
-      }
-
       // save the frame to the jpg file
       size_t err = fwrite(fb->buf, 1, fb->len, jpgfile);
       esp_camera_fb_return(fb);
@@ -1920,20 +1838,95 @@ void process_motionDetection() {
         Serial.println("Error on jpg write");
         major_fail();
       }
+      Serial.println("Motion detected picture taken");
       delay(3);
 
-      SendEmail e(emailhost, emailport, emailsendaddr, emailsendpwd, 5000, true); 
-      // Send Email
-      char send[40];
-      sprintf(send,"\<%s\>", emailsendaddr);
-      char recv[40];
-      sprintf(recv,"\<%s\>", email);
-      String msg = "Motion detected. Check ESP32-CAM web site for a video ~named ";
-      msg += avi_filenames[avi_newest_index]+1;
-      if ( e.send(send, recv, "Camera Event Detected", msg, jpg_filenames[jpg_newest_index] ) ) {
-        Serial.println("Motion detected email sent with video name");
+      if (  motionDetect == 11 ) {  // email the picture
+        SendEmail e(emailhost, emailport, emailsendaddr, emailsendpwd, 5000, true); 
+        // Send Email
+        char send[40];
+        sprintf(send,"\<%s\>", emailsendaddr);
+        char recv[40];
+        sprintf(recv,"\<%s\>", email);
+        if ( e.send(send, recv, "Camera Event Detected", "Please see attachment", jpg_filenames[jpg_newest_index]) ) {
+          Serial.println("Motion detected email sent with a picture");
+        } else {
+          Serial.println("Failed to send motion detected email with a picture");
+        }
+      }
+    }
+    if (  motionDetect == 12 || motionDetect == 13 ) { // take a video
+      // turn on recording (might already be recording)
+      recording = 1;
+      if ( motionDetect == 13 ) { // send an email with preliminary name of video
+        delay(1000);
+        // build name for new jpg file
+        time(&now);
+        localtime_r(&now, &timeinfo);
+ 
+        strftime(strftime_buf, sizeof(strftime_buf), "%F_%H_%M_%S", &timeinfo);
+
+        char fname[100];
+
+        sprintf(fname, "/sdcard/%s.jpg", strftime_buf);
+        Serial.print("\nFile name is > "); Serial.print(fname); Serial.println(" <");
+
+        // open new jpg file for write
+        jpgfile = fopen(fname, "w");
+        if (jpgfile != NULL)  {
+          //Serial.printf("File open: %s\n", fname);
+        }  else  {
+          Serial.println("Could not open file");
+          major_fail();
+        }
+
+        // only keep MAX_JPG_Files_On_SD 
+        jpg_file_count++;
+        if ( jpg_file_count > MAX_JPG_Files_On_SD ) {
+          // delete oldest file
+          if( SD_MMC.exists( jpg_filenames[jpg_oldest_index] )) {
+            SD_MMC.remove( jpg_filenames[jpg_oldest_index] );
+          }
+          jpg_file_count--;
+          strcpy(jpg_filenames[jpg_oldest_index], "");
+          jpg_oldest_index++;
+          if (jpg_oldest_index == MAX_JPG_Files_On_SD)
+            jpg_oldest_index = 0;
+        }
+        Serial.println( "Number of JPG files on SD card is " + String(jpg_file_count) + "\n" );
+        if ( jpg_file_count > 1 )
+          jpg_newest_index++;
+        if ( jpg_newest_index == MAX_JPG_Files_On_SD )
+          jpg_newest_index = 0;
+        strcpy(jpg_filenames[jpg_newest_index],fname+7);
+
+        // save the frame to the jpg file
+        size_t err = fwrite(fb->buf, 1, fb->len, jpgfile);
+        esp_camera_fb_return(fb);
+        xSemaphoreGive( baton );
+        fclose(jpgfile);
+        if (err == 0 ) {
+          Serial.println("Error on jpg write");
+          major_fail();
+        }
+        delay(5000);
+
+        SendEmail e(emailhost, emailport, emailsendaddr, emailsendpwd, 5000, true); 
+        // Send Email
+        char send[40];
+        sprintf(send,"\<%s\>", emailsendaddr);
+        char recv[40];
+        sprintf(recv,"\<%s\>", email);
+        String msg = "Motion detected. Check ESP32-CAM web site for a video ~named ";
+        msg += avi_filenames[avi_newest_index]+1;
+        if ( e.send(send, recv, "Camera Event Detected", msg, jpg_filenames[jpg_newest_index] ) ) {
+          Serial.println("Motion detected email sent with video name");
+        } else {
+          Serial.println("Failed to send motion detected email with video name");
+        }
       } else {
-        Serial.println("Failed to send motion detected email with video name");
+        esp_camera_fb_return(fb);
+        xSemaphoreGive( baton );
       }
     }
   }
@@ -3273,7 +3266,7 @@ void do_reset() {
 <script>
   document.addEventListener('DOMContentLoaded', function() {
     var c = document.location.origin;
-    var i = 50;
+    var i = 60;
     var timing = 1000;
     function loop() {
       document.getElementById('image-container').innerText = 'ESP32-CAM will be ready in '+`${i}`+' seconds';
@@ -3291,7 +3284,7 @@ void do_reset() {
 <body><center>
 <h1>ESP32-CAM Resetting</h1>
 <h2><div id="image-container"></div></h2>
-If the ESP32-CAM does not respond after 50 seconds, keep waiting.<br>
+If the ESP32-CAM does not respond after 60 seconds, keep waiting.<br>
 It will keep resetting about once per minute if it does not start clean.
 </center></body>
 </html>)rawliteral";
@@ -3564,6 +3557,16 @@ void startCameraServer() {
 }
 
 
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//
+// 
+
+void stopCameraServer() {
+  httpd_stop( camera_httpd );
+  httpd_stop( camera2_httpd );
+}
+
+
 ////////////////////////////////////////////////////////////////////////////////////
 //
 // some globals for the loop()
@@ -3607,6 +3610,26 @@ void loop()
   if (millis() - last_wakeup_10min > (10 * 60 * 1000) ) {       // 10 minutes
     last_wakeup_10min = millis();
     print_stats("Wakeup in loop() Core: ");
+
+    // check current time and restart web servers after midnight (in case it got stuck during the day)
+    struct tm timeinfo;
+    if (!getLocalTime(&timeinfo)) {
+      Serial.println("Failed to obtain time");
+    } else {
+      char hc[3];  // current hour
+      strftime(hc, sizeof(hc), "%H", &timeinfo);
+      int h = atoi(hc);
+      char mc[3];  // current minute
+      strftime(mc, sizeof(mc), "%M", &timeinfo);
+      int m = atoi(mc);
+
+      if (h == 0 && m <= 10) {
+        Serial.println("Restarting CameraServer");
+        stopCameraServer();
+        delay(10);
+        startCameraServer();
+      }
+    }
   }
 
   delay(10);
