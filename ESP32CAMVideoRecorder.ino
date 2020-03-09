@@ -223,7 +223,7 @@ class SendEmail
     // set attachment to NULL to not include an attachment
     bool send(const String& from, const String& to, const String& subject, const String& msg, const String& attachment);
 
-    ~SendEmail() {client->stop(); delete client;}
+    void close() {client->stop(); delete client;}
 };
 
 #endif
@@ -253,7 +253,7 @@ const char* emailhost = "smtp.gmail.com";
 const int emailport = 465;
 const char* emailsendaddr = "YourEmail\@gmail.com";
 const char* emailsendpwd = "YourEmailPwd";
-char email[40] = "DefaultMotionDetectEmail\@hotmail.com";  // can be changed in the app
+char email[40] = "DefaultMotionDetectEmail\@hotmail.com";  // this can be changed through Settings in the app
 
 const int SERVER_PORT = 80;  // port the the web server is listening on
             // the stream web server will be listening on this port + 10 
@@ -1853,6 +1853,7 @@ void process_motionDetection() {
         } else {
           Serial.println("Failed to send motion detected email with a picture");
         }
+        e.close(); // close email client
       }
     }
     if (  motionDetect == 12 || motionDetect == 13 ) { // take a video
@@ -1924,6 +1925,7 @@ void process_motionDetection() {
         } else {
           Serial.println("Failed to send motion detected email with video name");
         }
+        e.close(); // close email client
       } else {
         esp_camera_fb_return(fb);
         xSemaphoreGive( baton );
@@ -3381,6 +3383,7 @@ static esp_err_t settings_handler(httpd_req_t *req) {
     } else {
       sprintf(the_page, "New email address test failed");    
     }
+    e.close(); // close email client
     Serial.println( the_page );
     httpd_resp_send(req, the_page, strlen(the_page));
   } else if ( !strcmp( action, "motion" ) ) {
@@ -3434,6 +3437,7 @@ void startCameraServer() {
   config.send_wait_timeout=10;
   config.backlog_conn = 5;
   config.server_port = SERVER_PORT;
+  config.lru_purge_enable = true;
   //config.recv_wait_timeout=30;
   //config.send_wait_timeout=30;
 
@@ -3542,6 +3546,8 @@ void startCameraServer() {
   config2.ctrl_port = 42768;
   config2.max_uri_handlers = 4;
   config2.max_resp_headers = 8;
+  config2.lru_purge_enable = true;
+
 
   httpd_uri_t stream_uri = {
     .uri       = "/stream",
