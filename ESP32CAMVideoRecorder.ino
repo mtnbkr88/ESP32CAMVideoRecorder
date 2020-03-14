@@ -2,7 +2,7 @@
 
 ESP32-CAM Video Recorder
 
-02/20/2020 Ed Williams 
+03/14/2020 Ed Williams 
 
 This version of the ESP32-CAM Video Recorder is built on the work of many other listed below.
 It has been hugely modified to be a fairly complete web camera server with the following
@@ -543,6 +543,7 @@ static void inline print_quartet(unsigned long i, FILE * fd)
 
 void startCameraServer();
 httpd_handle_t camera_httpd = NULL;
+void startStreamServer();
 httpd_handle_t camera2_httpd = NULL;
 
 //char the_page[3000];
@@ -731,8 +732,9 @@ void setup() {
   Serial.println( "" );
   
 
-  // start web server
+  // start web servers
   startCameraServer();
+  startStreamServer();
 
   print_stats("After Server init Core: ");
 
@@ -3539,6 +3541,15 @@ void startCameraServer() {
     httpd_register_uri_handler(camera_httpd, &download_uri);
     httpd_register_uri_handler(camera_httpd, &settings_uri);
   }
+  
+}
+
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//
+// 
+
+void startStreamServer() {
 
   // start a second server for streaming
   httpd_config_t config2 = HTTPD_DEFAULT_CONFIG();
@@ -3556,8 +3567,16 @@ void startCameraServer() {
     .user_ctx  = NULL
   };
 
+  httpd_uri_t reset_uri = {
+    .uri       = "/reset",
+    .method    = HTTP_GET,
+    .handler   = reset_handler,
+    .user_ctx  = NULL
+  };
+
   if (httpd_start(&camera2_httpd, &config2) == ESP_OK) {
     httpd_register_uri_handler(camera2_httpd, &stream_uri);
+    httpd_register_uri_handler(camera2_httpd, &reset_uri);
   }
 
 }
@@ -3569,6 +3588,14 @@ void startCameraServer() {
 
 void stopCameraServer() {
   httpd_stop( camera_httpd );
+}
+
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//
+// 
+
+void stopStreamServer() {
   httpd_stop( camera2_httpd );
 }
 
@@ -3617,6 +3644,12 @@ void loop()
     last_wakeup_10min = millis();
     print_stats("Wakeup in loop() Core: ");
 
+    // restart the main camera web server - it easily gets stuck
+    Serial.println("Restarting CameraServer in case it got stuck");
+    stopCameraServer();
+    delay(10);
+    startCameraServer();
+    
     // check current time and restart web servers after midnight (in case it got stuck during the day)
     struct tm timeinfo;
     if (!getLocalTime(&timeinfo)) {
@@ -3630,10 +3663,12 @@ void loop()
       int m = atoi(mc);
 
       if (h == 0 && m <= 10) {
-        Serial.println("Restarting CameraServer");
+        Serial.println("Daily restart of CameraServer and StreamServer");
         stopCameraServer();
+        stopStreamServer();
         delay(10);
         startCameraServer();
+        startStreamServer();
       }
     }
   }
