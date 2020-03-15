@@ -3647,7 +3647,7 @@ void loop()
     // restart the main camera web server - it easily gets stuck
     Serial.println("Restarting CameraServer in case it got stuck");
     stopCameraServer();
-    delay(10);
+    delay(500);
     startCameraServer();
     
     // check current time and restart web servers after midnight (in case it got stuck during the day)
@@ -3666,7 +3666,7 @@ void loop()
         Serial.println("Daily restart of CameraServer and StreamServer");
         stopCameraServer();
         stopStreamServer();
-        delay(10);
+        delay(500);
         startCameraServer();
         startStreamServer();
       }
