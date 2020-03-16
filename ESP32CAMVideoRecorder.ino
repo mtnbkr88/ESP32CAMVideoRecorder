@@ -1366,7 +1366,11 @@ static esp_err_t start_avi() {
 
   Serial.println("Starting an avi ");
 
-  config_camera();
+  //config_camera();
+  for (int j = 0; j < 5; j++) {
+    do_fb();  // start the camera ... warm it up
+    delay(20);
+  }
 
   time(&now);
   localtime_r(&now, &timeinfo);
