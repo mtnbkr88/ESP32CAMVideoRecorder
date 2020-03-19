@@ -2,7 +2,7 @@
 
 ESP32-CAM Video Recorder
 
-02/20/2020 Ed Williams 
+03/18/2020 Ed Williams 
 
 This version of the ESP32-CAM Video Recorder is built on the work of many other listed in the sketch.
 It has been hugely modified to be a fairly complete web camera server with the following capabilities:
