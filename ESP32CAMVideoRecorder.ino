@@ -2,7 +2,7 @@
 
 ESP32-CAM Video Recorder
 
-03/14/2020 Ed Williams 
+03/18/2020 Ed Williams 
 
 This version of the ESP32-CAM Video Recorder is built on the work of many other listed below.
 It has been hugely modified to be a fairly complete web camera server with the following
@@ -285,6 +285,12 @@ int jpg_file_count = 0;  // count of jpg files on SD
 int jpg_newest_index = 0;  // points to newest filename in jpg_filenames
 int jpg_oldest_index = 0;  // points to oldest filename in jpg_filenames
 
+int motion = 0;  // 1 if currently working on a detected motion
+int motionDetect = 0;  // > 10 enables motion detection
+int triggerDetect = 0;  // > 10 enables trigger detection
+int triggerH = 0;  // trigger hour
+int triggerM = 0;  // trigger minute
+
 // EEPROM setup for saving values over reboots
 #include <EEPROM.h>
 #define EEPROM_READY_ADDR 0x00
@@ -292,10 +298,11 @@ byte eeprom_ready[] = {0x52, 0x65, 0x61, 0x64, 0x79};
 #define EEPROM_LENGTH_ADDR (EEPROM_READY_ADDR+sizeof(eeprom_ready))
 #define EEPROM_EMAIL_ADDR (EEPROM_LENGTH_ADDR+sizeof(xlength))
 #define EEPROM_MOTION_ADDR (EEPROM_EMAIL_ADDR+sizeof(email))
+#define EEPROM_TRIGGER_ADDR (EEPROM_MOTION_ADDR+sizeof(motionDetect))
+#define EEPROM_TRIGGERH_ADDR (EEPROM_TRIGGER_ADDR+sizeof(triggerDetect))
+#define EEPROM_TRIGGERM_ADDR (EEPROM_TRIGGERH_ADDR+sizeof(triggerH))
 
 gpio_num_t PIR_Pin = GPIO_NUM_3;  // use GPIO3 (U0RXD) for listening for PIR
-int motion = 0;
-int motionDetect = 0;
 
 unsigned long current_millis;
 unsigned long last_capture_millis = 0;
@@ -751,7 +758,7 @@ void setup() {
   memtmp = NULL;
   
   // load saved values from EEPROM
-  EEPROM.begin(EEPROM_MOTION_ADDR+sizeof(motionDetect));
+  EEPROM.begin(EEPROM_TRIGGERM_ADDR+sizeof(triggerM));
   int eeprom_init = 0; // 0 is ready, 1 is not ready
   for(int b = EEPROM_READY_ADDR; b < EEPROM_READY_ADDR + sizeof(eeprom_ready); b++) {
     // EEPROM = Init Code?
@@ -771,13 +778,31 @@ void setup() {
     Serial.print( "Email address set to " ); Serial.println( email );
     EEPROM.get(EEPROM_MOTION_ADDR, motionDetect);
     Serial.print( "Motion detect set to " ); Serial.println( motionDetect );
+    EEPROM.get(EEPROM_TRIGGER_ADDR, triggerDetect);
+    Serial.print( "Trigger detect set to " ); Serial.println( triggerDetect );
+    EEPROM.get(EEPROM_TRIGGERH_ADDR, triggerH);
+    Serial.print( "Trigger hour set to " ); Serial.println( triggerH );
+    EEPROM.get(EEPROM_TRIGGERM_ADDR, triggerM);
+    Serial.print( "Trigger minute set to " ); Serial.println( triggerM );
   } else { // EEPROM not ready, save default values
     Serial.println("First run after flash, saving default values in EEPROM");
     EEPROM.put(EEPROM_LENGTH_ADDR, xlength);
     EEPROM.put(EEPROM_EMAIL_ADDR, email);
     EEPROM.put(EEPROM_MOTION_ADDR, motionDetect);
+    EEPROM.put(EEPROM_TRIGGER_ADDR, triggerDetect);
+    EEPROM.put(EEPROM_TRIGGERH_ADDR, triggerH);
+    EEPROM.put(EEPROM_TRIGGERM_ADDR, triggerM);
     EEPROM.commit();
   }
+  /*
+  triggerDetect = 0;
+  triggerH = 6;
+  triggerM = 50;
+  EEPROM.put(EEPROM_TRIGGER_ADDR, triggerDetect);
+  EEPROM.put(EEPROM_TRIGGERH_ADDR, triggerH);
+  EEPROM.put(EEPROM_TRIGGERM_ADDR, triggerM);
+  EEPROM.commit();
+  */
   
   //recording = 1;  // we are recording
 
@@ -1777,8 +1802,19 @@ void do_time() {
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 //
 // 
-void process_motionDetection() {
-  Serial.print("Motion detected and action will be "); Serial.println( motionDetect );
+void process_Detection(int detection_type) {
+  // detection_type 0 is motion detection, detection_type 1 is time detection
+  int dAction;
+  String dMsg;
+  if ( detection_type == 0 ) {
+    dAction = motionDetect;
+    dMsg = "Motion detected";
+  } else {
+    dAction = triggerDetect;
+    dMsg = "Time trigger";
+  }
+  Serial.print( dMsg ); Serial.print(" and action will be "); Serial.println( dAction );
+
   // get a camera frame buffer and make sure it has something to see
   camera_fb_t * fb = NULL;
   xSemaphoreTake( baton, portMAX_DELAY );
@@ -1792,9 +1828,9 @@ void process_motionDetection() {
   if ( fb->len < 12000 ) { // dont save files smaller than 10K, they are usually blank
     esp_camera_fb_return(fb);
     xSemaphoreGive( baton );
-    Serial.println("Skipping motion action, camera buffer has nothing interesting to show");
+    Serial.println("Skipping camera event action, camera buffer has nothing interesting to show");
   } else {
-    if (  motionDetect == 10 || motionDetect == 11 ) { // take a picture
+    if (  dAction == 10 || dAction == 11 ) { // take a picture
       // build name for new jpg file
       time(&now);
       localtime_r(&now, &timeinfo);
@@ -1806,7 +1842,7 @@ void process_motionDetection() {
       sprintf(fname, "/sdcard/%s.jpg", strftime_buf);
       Serial.print("\nFile name is > "); Serial.print(fname); Serial.println(" <");
 
-     // open new jpg file for write
+      // open new jpg file for write
       jpgfile = fopen(fname, "w");
       if (jpgfile != NULL)  {
         //Serial.printf("File open: %s\n", fname);
@@ -1844,10 +1880,10 @@ void process_motionDetection() {
         Serial.println("Error on jpg write");
         major_fail();
       }
-      Serial.println("Motion detected picture taken");
+      Serial.print( dMsg ); Serial.println(" picture taken");
       delay(3);
 
-      if (  motionDetect == 11 ) {  // email the picture
+      if (  dAction == 11 ) {  // email the picture
         SendEmail e(emailhost, emailport, emailsendaddr, emailsendpwd, 5000, true); 
         // Send Email
         char send[40];
@@ -1855,17 +1891,18 @@ void process_motionDetection() {
         char recv[40];
         sprintf(recv,"\<%s\>", email);
         if ( e.send(send, recv, "Camera Event Detected", "Please see attachment", jpg_filenames[jpg_newest_index]) ) {
-          Serial.println("Motion detected email sent with a picture");
+          Serial.print( dMsg ); Serial.println(" email sent with a picture");
         } else {
-          Serial.println("Failed to send motion detected email with a picture");
+          Serial.print("Failed to send "); Serial.print( dMsg );
+          Serial.println(" email with a picture");
         }
         e.close(); // close email client
       }
     }
-    if (  motionDetect == 12 || motionDetect == 13 ) { // take a video
+    if (  dAction == 12 || dAction == 13 ) { // take a video
       // turn on recording (might already be recording)
       recording = 1;
-      if ( motionDetect == 13 ) { // send an email with preliminary name of video
+      if ( dAction == 13 ) { // send an email with preliminary name of video
         delay(1000);
         // build name for new jpg file
         time(&now);
@@ -1924,12 +1961,14 @@ void process_motionDetection() {
         sprintf(send,"\<%s\>", emailsendaddr);
         char recv[40];
         sprintf(recv,"\<%s\>", email);
-        String msg = "Motion detected. Check ESP32-CAM web site for a video ~named ";
+        String msg = dMsg;
+        msg += ". Check ESP32-CAM web site for a video ~named ";
         msg += avi_filenames[avi_newest_index]+1;
         if ( e.send(send, recv, "Camera Event Detected", msg, jpg_filenames[jpg_newest_index] ) ) {
-          Serial.println("Motion detected email sent with video name");
+          Serial.print( dMsg ); Serial.println(" email sent with video name");
         } else {
-          Serial.println("Failed to send motion detected email with video name");
+          Serial.print("Failed to send ");
+          Serial.print( dMsg ); Serial.println(" email with video name");
         }
         e.close(); // close email client
       } else {
@@ -3114,10 +3153,9 @@ a:active {color: blue;}
   document.addEventListener('DOMContentLoaded', function() {
     do_motion(0);
     do_motionaction(0);
+    do_trigger(0);
+    do_triggeraction(0);
   });
-
-
-var curreclen = %i;
 
 function do_reset() {
   if ( confirm( 'Are you sure you want to reboot the ESP32-CAM?' ) ) {
@@ -3126,6 +3164,8 @@ function do_reset() {
 }
 
 var timeout = null;
+
+var curreclen = %i;
 
 function do_length() {
   // send changes when changes are done
@@ -3207,6 +3247,83 @@ function do_motionaction(action) {
   }
 }
         
+var curtrigger = %i;
+
+function do_trigger(action) {
+  if ( action == 0 ) { // display current value
+    if ( curtrigger < 10 ) { // trigger is off
+      document.getElementById('trigger').innerHTML = '<a href="javascript:do_trigger(1);">Turn On Time Trigger</a>';
+    } else { // motion detection is on
+      document.getElementById('trigger').innerHTML = '<a href="javascript:do_trigger(1);">Turn Off Time Trigger</a>';    
+    }
+  } else { // toggle value
+    if ( curtrigger < 10 ) { // turn on time trigger
+      curtrigger = curtrigger + 10;
+      document.getElementById('trigger').innerHTML = '<a href="javascript:do_trigger(1);">Turn Off Time Trigger</a>';
+    } else { // turn off time trigger
+      curtrigger = curtrigger - 10;
+      document.getElementById('trigger').innerHTML = '<a href="javascript:do_trigger(1);">Turn On Time Trigger</a>';    
+    }
+    var XHR = new XMLHttpRequest();
+    XHR.open( "GET", `/settings?action=trigger&taction=${curtrigger}`, true );   
+    XHR.onloadend = function(){
+      alert( XHR.responseText );
+    }
+    XHR.send( null );
+  }
+}
+        
+function do_triggeraction(action) {
+  var a = curtrigger; // a is action
+  if ( a > 9 ) 
+    a = a - 10;
+  var of = 0; // of is on off value
+  if ( curtrigger > 9 ) 
+    of = 10;
+  if ( action == 0 ) { // display current value
+    document.getElementById("taction").selectedIndex = a;
+  } else { // process a possible change
+    var e = document.getElementById("taction");
+    var na = e.options[e.selectedIndex].value - 1;
+    if ( na != a ) { // drop down selection has changed
+      curtrigger = of + na;
+      var XHR = new XMLHttpRequest();
+      XHR.open( "GET", `/settings?action=trigger&taction=${curtrigger}`, true );   
+      XHR.onloadend = function(){
+        alert( XHR.responseText );
+      }
+      XHR.send( null );
+    }
+  }
+}
+
+var curth = %i;
+var curtm = %i;
+
+function do_triggertime() {
+  // send changes when changes are done
+  var th = parseInt(document.getElementById("th").value);
+  var tm = parseInt(document.getElementById("tm").value);
+  clearTimeout(timeout);
+  if ( th > -1 && th < 24 && tm > -1 && tm < 60 ) {
+    curth = th;
+    curtm = tm;
+    document.getElementById("th").value = th;
+    document.getElementById("tm").value = tm;
+    timeout = setTimeout(function () {
+      var XHR = new XMLHttpRequest();
+      XHR.open( "GET", `/settings?action=triggertime&th=${th}&tm=${tm}`, true );            
+      XHR.onloadend = function(){
+        alert( XHR.responseText );
+      }
+      XHR.send( null );
+    }, 4000);
+  } else {
+    document.getElementById("th").value = curth;  
+    document.getElementById("tm").value = curtm;  
+  }
+}
+        
 </script>
 </head>
 <body>
@@ -3232,7 +3349,7 @@ function do_motionaction(action) {
      Wait 15 seconds for the test to complete. 
      The new email address will be saved if the test succeeds.</td></tr>
    <tr><td>&nbsp</td></tr>
-   <tr><td><span id="motion"><a href="javascript:do_motion();">Turn On Motion Detection</a></span>
+   <tr><td><span id="motion"><a href="javascript:do_motion(1);">Turn On Motion Detection</a></span>
      &nbsp;Motion detect action:
      <select id="maction" onchange="do_motionaction(1);">
        <option value="1">Take a picture</option>
@@ -3241,6 +3358,21 @@ function do_motionaction(action) {
        <option value="4">Take a video and email name of video</option>
      </select><br>
      Motion detection starts again 60 seconds after a trigger.
+   </td></tr>
+   <tr><td>&nbsp</td></tr>
+   <tr><td><span id="trigger"><a href="javascript:do_trigger(1);">Turn On Time Trigger</a></span>
+     &nbsp;Time trigger action:
+     <select id="taction" onchange="do_triggeraction(1);">
+       <option value="1">Take a picture</option>
+       <option value="2">Take a picture and email it</option>
+       <option value="3">Take a video</option>
+       <option value="4">Take a video and email name of video</option>
+     </select>
+     <br>Trigger time (0-23H : 0-59M):
+     <input type="number" id="th" value="%i" min="0" max="23" style="width: 3em" onchange="do_triggertime();"/>
+     H :
+     <input type="number" id="tm" value="%i" min="0" max="59" style="width: 3em" onchange="do_triggertime();"/>
+     M
    </td></tr>
    <tr><td>&nbsp</td></tr>
    <tr><td><a href="javascript:do_reset();">ESP32-CAM Reboot</a></td></tr>
@@ -3254,7 +3386,7 @@ function do_motionaction(action) {
   int used = SD_MMC.usedBytes() / (1024 * 1024);
   int total = SD_MMC.totalBytes() / (1024 * 1024);
   int free = total - used;
-  sprintf(the_page, msg1, xlength, motionDetect, xlength, email, total, used, free, boottime);
+  sprintf(the_page, msg1, xlength, motionDetect, triggerDetect, triggerH, triggerM, xlength, email, triggerH, triggerM, total, used, free, boottime);
 
 }
 
@@ -3332,8 +3464,11 @@ static esp_err_t settings_handler(httpd_req_t *req) {
   char param[60];
   char action[20];
   int reclength = 60;
-  int newmotionDetect;
   char new_email[60];
+  int newmotionDetect;
+  int newtriggerDetect;
+  int newtriggerH;
+  int newtriggerM;
   strcpy(action, "show");
 
   // query parameters - get action
@@ -3351,6 +3486,15 @@ static esp_err_t settings_handler(httpd_req_t *req) {
       }
       if (httpd_query_key_value(buf, "maction", param, sizeof(param)) == ESP_OK) {
         newmotionDetect = atoi( param );
+      }
+      if (httpd_query_key_value(buf, "taction", param, sizeof(param)) == ESP_OK) {
+        newtriggerDetect = atoi( param );
+      }
+      if (httpd_query_key_value(buf, "th", param, sizeof(param)) == ESP_OK) {
+        newtriggerH = atoi( param );
+      }
+      if (httpd_query_key_value(buf, "tm", param, sizeof(param)) == ESP_OK) {
+        newtriggerM = atoi( param );
       }
     }
   }
@@ -3416,6 +3560,42 @@ static esp_err_t settings_handler(httpd_req_t *req) {
     EEPROM.put(EEPROM_MOTION_ADDR, motionDetect);
     EEPROM.commit();
     httpd_resp_send(req, the_page, strlen(the_page));
+  } else if ( !strcmp( action, "trigger" ) ) {
+    if ( abs( newtriggerDetect - triggerDetect ) > 9 ) { // trigger detect turned on or off
+      triggerDetect = newtriggerDetect;
+      if ( newtriggerDetect < 10 ) {
+        sprintf(the_page, "Time trigger turned off");
+      } else {
+        sprintf(the_page, "Time trigger turned on");
+      }
+    } else { // trigger action changed
+      triggerDetect = newtriggerDetect;
+      if ( newtriggerDetect > 9 )
+        newtriggerDetect = newtriggerDetect - 10;
+      if ( newtriggerDetect == 0 )
+        sprintf(the_page, "Time trigger action set to Take a picture");
+      if ( newtriggerDetect == 1 )
+        sprintf(the_page, "Time trigger action set to Take a picture and email it");
+      if ( newtriggerDetect == 2 )
+        sprintf(the_page, "Time trigger action set to Take a video");
+      if ( newtriggerDetect == 3 )
+        sprintf(the_page, "Time trigger action set to Take a video and email name of video");
+    }
+    EEPROM.put(EEPROM_TRIGGER_ADDR, triggerDetect);
+    EEPROM.commit();
+    httpd_resp_send(req, the_page, strlen(the_page));
+  } else if ( !strcmp( action, "triggertime" ) ) {
+    if ( newtriggerH > -1 && newtriggerH < 24 & newtriggerM > -1 && newtriggerM < 60 ) {
+      // set new trigger time      
+      sprintf(the_page, "Trigger time set to %i H : %i M", newtriggerH, newtriggerM);
+      Serial.println( the_page );
+      triggerH = newtriggerH;
+      triggerM = newtriggerM;
+      EEPROM.put(EEPROM_TRIGGERH_ADDR, triggerH);
+      EEPROM.put(EEPROM_TRIGGERM_ADDR, triggerM);
+      EEPROM.commit();
+      httpd_resp_send(req, the_page, strlen(the_page));
+    }
   } else if ( !strcmp( action, "reset" ) ) {
     // call reset handler
     reset_handler(req);
@@ -3571,6 +3751,8 @@ void startStreamServer() {
     .user_ctx  = NULL
   };
 
+  // I don't know why but the main web server sometimes hangs
+  // use this uri on the stream web server to reset the camera
   httpd_uri_t reset_uri = {
     .uri       = "/reset",
     .method    = HTTP_GET,
@@ -3610,8 +3792,9 @@ void stopStreamServer() {
 //
 
 unsigned long last_wakeup_1sec = 0;
-unsigned long motion1min = 0;
+unsigned long last_wakeup_1min = 0;
 unsigned long last_wakeup_10min = 0;
+unsigned long motion1min = 0;
 
 void loop()
 {
@@ -3632,14 +3815,45 @@ void loop()
           // function to handle motion detected
           motion = 1;
           motion1min = millis();
-          process_motionDetection();
+          process_Detection(0);  // 0 is motion detection 
         }
       }
       
     }
   }
 
-  if ( millis() - motion1min > (1 * 60 * 1000) && motion == 1 ) {       // 1 minute
+  if ( millis() - last_wakeup_1min > (1 * 60 * 1000) ) {       // 1 minute
+    last_wakeup_1min = millis();
+
+    // check current time and restart web servers after midnight (in case it got stuck during the day)
+    struct tm timeinfo;
+    if (!getLocalTime(&timeinfo)) {
+      Serial.println("Failed to obtain time");
+    } else {
+      char hc[3];  // current hour
+      strftime(hc, sizeof(hc), "%H", &timeinfo);
+      int h = atoi(hc);
+      char mc[3];  // current minute
+      strftime(mc, sizeof(mc), "%M", &timeinfo);
+      int m = atoi(mc);
+
+      // restart stream web server at midnight just in case it is stuck
+      if ( h == 0 && m == 0 ) {
+        Serial.println("Daily restart of StreamServer");
+        stopStreamServer();
+        delay(500);
+        startStreamServer();
+      }
+
+      // check if time trigger happened
+      if ( triggerDetect > 9 && triggerH == h && triggerM == m ) {
+        // do time trigger
+        process_Detection(1);  // 1 is time trigger detection 
+      }
+    }
+  }
+
+  if ( millis() - motion1min > (1 * 60 * 1000) && motion == 1 ) {  // 1 motion minute
     // allow motion detection after 1 minute
     motion = 0;
   }
@@ -3654,27 +3868,6 @@ void loop()
     delay(500);
     startCameraServer();
     
-    // check current time and restart web servers after midnight (in case it got stuck during the day)
-    struct tm timeinfo;
-    if (!getLocalTime(&timeinfo)) {
-      Serial.println("Failed to obtain time");
-    } else {
-      char hc[3];  // current hour
-      strftime(hc, sizeof(hc), "%H", &timeinfo);
-      int h = atoi(hc);
-      char mc[3];  // current minute
-      strftime(mc, sizeof(mc), "%M", &timeinfo);
-      int m = atoi(mc);
-
-      if (h == 0 && m <= 10) {
-        Serial.println("Daily restart of CameraServer and StreamServer");
-        stopCameraServer();
-        stopStreamServer();
-        delay(500);
-        startCameraServer();
-        startStreamServer();
-      }
-    }
   }
 
   delay(10);
