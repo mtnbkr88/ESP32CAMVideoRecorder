@@ -15,7 +15,8 @@ It has been hugely modified to be a fairly complete web camera server with the f
   - Recording times can be set from 10 to 300 seconds
   - Motion detection is available if a PIR motion sensor is connected to GPIO3 (U0RXD)
     (after the firmware is uploaded). 
-    Motion detection can trigger the following actions:
+  - Time action trigger.
+  - Motion detection and time can trigger the following actions:
     - Take a picture.
     - Take a picture and email it.
     - Make a video.
