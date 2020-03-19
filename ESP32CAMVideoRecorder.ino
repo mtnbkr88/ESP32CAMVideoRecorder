@@ -794,15 +794,6 @@ void setup() {
     EEPROM.put(EEPROM_TRIGGERM_ADDR, triggerM);
     EEPROM.commit();
   }
-  /*
-  triggerDetect = 0;
-  triggerH = 6;
-  triggerM = 50;
-  EEPROM.put(EEPROM_TRIGGER_ADDR, triggerDetect);
-  EEPROM.put(EEPROM_TRIGGERH_ADDR, triggerH);
-  EEPROM.put(EEPROM_TRIGGERM_ADDR, triggerM);
-  EEPROM.commit();
-  */
   
   //recording = 1;  // we are recording
 
