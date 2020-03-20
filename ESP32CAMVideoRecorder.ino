@@ -16,7 +16,8 @@ capabilities:
   - Recording times can be set from 10 to 300 seconds
   - Motion detection is available if a PIR motion sensor is connected to GPIO3 (U0RXD)
     (after the firmware is uploaded). 
-    Motion detection can trigger the following actions:
+  - Time action trigger.
+  - Motion detection and time can trigger the following actions:
     - Take a picture.
     - Take a picture and email it.
     - Make a video.
@@ -794,7 +795,7 @@ void setup() {
     EEPROM.put(EEPROM_TRIGGERM_ADDR, triggerM);
     EEPROM.commit();
   }
-  
+
   //recording = 1;  // we are recording
 
   //Serial.println("GPIO 3 setup for listening to PIR");
@@ -3610,8 +3611,8 @@ void startCameraServer() {
   config.max_uri_handlers = 15;
   config.max_resp_headers = 10;
   config.stack_size = 12288;
-  config.recv_wait_timeout=10;
-  config.send_wait_timeout=10;
+  //config.recv_wait_timeout=10;
+  //config.send_wait_timeout=10;
   config.backlog_conn = 5;
   config.server_port = SERVER_PORT;
   config.lru_purge_enable = true;
@@ -3852,13 +3853,13 @@ void loop()
   if (millis() - last_wakeup_10min > (10 * 60 * 1000) ) {       // 10 minutes
     last_wakeup_10min = millis();
     print_stats("Wakeup in loop() Core: ");
-
+/*
     // restart the main camera web server - it easily gets stuck
     Serial.println("Restarting CameraServer in case it got stuck");
     stopCameraServer();
     delay(500);
     startCameraServer();
-    
+*/    
   }
 
   delay(10);
