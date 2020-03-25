@@ -2,15 +2,15 @@
 
 ESP32-CAM Video Recorder
 
-03/18/2020 Ed Williams 
+03/25/2020 Ed Williams 
 
 This version of the ESP32-CAM Video Recorder is built on the work of many other listed below.
 It has been hugely modified to be a fairly complete web camera server with the following
 capabilities:
   - Record AVI video and peak, stream, download or delete the saved videos.
   - Take JPG pictures and view, download or delete the saved pictures.
-  - Up to 250 videos and 250 pictures can be saved on the SD card. Beyond that as more
-    are saved the oldest are deleted.
+  - Save up to 250 videos and 250 pictures on the SD card. Beyond that as more are saved 
+    the oldest are deleted.
   - Removed the ability to change the size, frame rate and quality. They are permanently 
     set to size 640x480, 125ms and quality 10.
   - Recording times can be set from 10 to 300 seconds
@@ -22,19 +22,20 @@ capabilities:
     - Take a picture and email it.
     - Make a video.
     - Make a video and send an email with name of video.
-    Motion detection is checked every second and starts checking again one minute
+  - Motion detection is checked every second and starts checking again one minute
     after a trigger, so if you don't want any gaps in motion detected videos, set 
     recording time to 60 seconds.
   - Normal web traffic is on port 80, streaming comes from port 90. If accessing from 
     outside local network, forward port X to 80 and port X+10 to port 90.
-  - The original included FTP server was removed since files can now be managed through
+  - OTA firmware updates on port 90.
+  - The originally included FTP server was removed since files can now be managed through
     the web site.
   - Note: This sketch uses a simple sendemail library I found on github by Peter Gorasz
     (sendemail.cpp and sendemail.h) but modified by me to allow sending one file from 
     the SD card as an attachment. The sendemail pieces are included in this sketch and 
     can be moved to external files if you want to use them for something else.
   - Use a top quality SD card with at least 16G. If the camera crashes after recording a
-    lot of videos, the SD card might be full.
+    lot of videos, look on the Settings screeen to see if the SD card is full.
 
 When using the camera and SD card, I was only able to get GPIO3 (U0RXD) pin to work
 with the PIR but I had to wire it up as follows:
@@ -46,6 +47,12 @@ then connect to base of transistor. Connect the emitter of the transistor to GND
 Used pinMode(GPIO_NUM_3, INPUT_PULLUP) in the setup to pull the pin high. Now when 
 motion is detected, GPIO3 will be pulled low, otherwise it will be high.
 
+If a motion detect or time trigger video is being recorded and send an email is enabled,
+the email sometimes does not get sent. The socket for connecting to the email server fails.
+I haven't figured this one out yet.
+
+The Default Partition Scheme must be used for compiling so OTA can work.
+
 
 The descriptons below are from authors of previous versions of this sketch and some of 
 the capabilities they describe, like using an FTP Server and changing size, frame rate 
@@ -53,8 +60,8 @@ and quality of recorded videos have been removed.
 
 ****************************************************************************************/
 
-
-/***********************************************************************************************************************************************************
+/* start of others old comments ********************************************************
+***********************************************************************************************************************************************************
  *  TITLE: This sketch is derived from the following Github repository and is mainly for testing the current work done by the team. It allows you 
  *  to record video onto a microSD card, using the ESP32-CAM board. Videos can be remotely obtained by accessing the FTP server contained within the sketch.
  *
@@ -170,8 +177,42 @@ and quality of recorded videos have been removed.
       ArduCAM Mini demo (C)2017 LeeWeb: http://www.ArduCAM.com
       I copied the structure of the avi file, some calculations.
 
-*/
+end of others old comments ***************************************************************
+******************************************************************************************/
 
+
+// edit the below for local settings 
+
+// wifi info
+const char* ssid = "YourSSID";
+const char* password = "YourSSIDPwd";
+// fixed IP info
+const uint8_t IP_Address[4] = {192, 168, 2, 33};
+const uint8_t IP_Gateway[4] = {192, 168, 2, 1};
+const uint8_t IP_Subnet[4] = {255, 255, 255, 0};
+const uint8_t IP_PrimaryDNS[4] = {8, 8, 8, 8};
+const uint8_t IP_SecondaryDNS[4] = {8, 8, 4, 4};
+
+const char* TZ_INFO = "PST8PDT,M3.2.0/2:00:00,M11.1.0/2:00:00";
+
+const int SERVER_PORT = 80;  // port the the web server is listening on
+            // the stream web server will be listening on this port + 10 
+
+// edit email server info for the send part, recipient address is set through Settings in the app
+const char* emailhost = "smtp.gmail.com";
+const int emailport = 465;
+const char* emailsendaddr = "YourEmail\@gmail.com";
+const char* emailsendpwd = "YourEmailPwd";
+char email[40] = "DefaultMotionDetectionEmail\@hotmail.com";  // this can be changed through Settings in the app
+
+// OTA update stuff
+const char* appName = "ESP32CAMVideoRecorder";
+const char* appVersion = "1.1.0";
+const char* firmwareUpdatePassword = "87654321";
+
+// should not need to edit the below
+
+#include <Update.h>  // for flashing new firmware
 
 //#define LOG_LOCAL_LEVEL ESP_LOG_VERBOSE
 #include "esp_log.h"
@@ -180,9 +221,8 @@ and quality of recorded videos have been removed.
 
 //#include <WiFi.h>   // redundant
 
-#include <HTTPClient.h>
-//#include "SD_MMC.h"
-//#include <FS.h>
+//#include "SD_MMC.h"  // redundant
+//#include <FS.h>      // redundant
 
 
 /**********************************************************************************
@@ -242,22 +282,6 @@ class SendEmail
 #include "sdmmc_cmd.h"
 #include "esp_vfs_fat.h"
 
-//
-// EDIT ssid and password and other default values
-//
-// Look for zzz here and a couple times further down to edit default values
-//
-const char* ssid = "YourSSID";
-const char* password = "TheSSIDPwd";
-// edit email server info for the send part, recipient address is set through Settings in the app
-const char* emailhost = "smtp.gmail.com";
-const int emailport = 465;
-const char* emailsendaddr = "YourEmail\@gmail.com";
-const char* emailsendpwd = "YourEmailPwd";
-char email[40] = "DefaultMotionDetectEmail\@hotmail.com";  // this can be changed through Settings in the app
-
-const int SERVER_PORT = 80;  // port the the web server is listening on
-            // the stream web server will be listening on this port + 10 
 
 // don't change the below unless you are certain you know what you are doing
 int capture_interval = 125; // microseconds between captures (set to 8 frames per second)
@@ -293,7 +317,7 @@ int triggerH = 0;  // trigger hour
 int triggerM = 0;  // trigger minute
 
 // EEPROM setup for saving values over reboots
-#include <EEPROM.h>
+#include <EEPROM.h>  // also used in OTA firmware update screen
 #define EEPROM_READY_ADDR 0x00
 byte eeprom_ready[] = {0x52, 0x65, 0x61, 0x64, 0x79};
 #define EEPROM_LENGTH_ADDR (EEPROM_READY_ADDR+sizeof(eeprom_ready))
@@ -311,7 +335,6 @@ static esp_err_t cam_err;
 static esp_err_t card_err;
 char strftime_buf[64];
 int file_number = 0;
-bool internet_connected = false;
 struct tm timeinfo;
 time_t now;
 char boottime[30];
@@ -558,7 +581,6 @@ httpd_handle_t camera2_httpd = NULL;
 //char the_page[50000];
 char the_page[15000];
 
-char localip[20];
 WiFiEventId_t eventID;
 
 #include "soc/soc.h"
@@ -600,17 +622,13 @@ void setup() {
   }, WiFiEvent_t::SYSTEM_EVENT_STA_DISCONNECTED);
 
   if (init_wifi()) { // Connected to WiFi
-    internet_connected = true;
     Serial.println("Internet connected");
-    sprintf(localip, "%s", WiFi.localIP().toString().c_str());
 
     init_time();
     time(&now);
 
-    // zzz  set timezone here
-    //setenv("TZ", "GMT0BST,M3.5.0/01,M10.5.0/02", 1);
-    //setenv("TZ", "MST7MDT,M3.2.0/2:00:00,M11.1.0/2:00:00", 1);  // mountain time zone
-    setenv("TZ", "PST8PDT,M3.2.0/2:00:00,M11.1.0/2:00:00", 1);  // pacific time zone
+    // set timezone
+    setenv("TZ", TZ_INFO, 1);  
     tzset();
     delay(1000);
     time(&now);
@@ -830,6 +848,8 @@ void print_stats(char *the_message) {
   Serial.println(" ");
 }
 
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 //
 // if we have no camera, or sd card, then flash rear led on and off to warn the human SOS - SOS
 //
@@ -866,9 +886,6 @@ void major_fail() {
 
   esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP5S * uS_TO_S_FACTOR);
   esp_deep_sleep_start();
-
-  //ESP.restart();        
-
 }
 
 
@@ -1112,16 +1129,14 @@ bool init_wifi()
   int connAttempts = 0;
   
     // this is the fixed ip stuff 
-    // zzz  set static IP address here
-    // 
-    IPAddress local_IP(192, 168, 2, 33);
+    IPAddress local_IP(IP_Address);
 
     // Set your Gateway IP address
-    IPAddress gateway(192, 168, 2, 1);
+    IPAddress gateway(IP_Gateway);
 
-    IPAddress subnet(255, 255, 255, 0);
-    IPAddress primaryDNS(8, 8, 8, 8); // optional
-    IPAddress secondaryDNS(8, 8, 4, 4); // optional
+    IPAddress subnet(IP_Subnet);
+    IPAddress primaryDNS(IP_PrimaryDNS); // optional
+    IPAddress secondaryDNS(IP_SecondaryDNS); // optional
 
     WiFi.mode(WIFI_STA);
 
@@ -3605,6 +3620,171 @@ static esp_err_t settings_handler(httpd_req_t *req) {
 //
 // 
 
+static esp_err_t updatefirmware_get_handler(httpd_req_t *req) {
+
+  Serial.println("In updatefirmware_get_handler");
+
+  const char msg[] PROGMEM = R"rawliteral(<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ESP32 Firmware Updater</title>
+<script>
+
+function clear_status() {
+  document.getElementById('status').innerHTML = " &nbsp; ";
+}
+
+function uploadfile(file) {
+  let xhr = new XMLHttpRequest();
+  document.getElementById('updatebutton').disabled = true;
+  document.getElementById('status').innerText = "Progress 0%%";
+  let eraseEEPROMvalue = document.getElementById('EraseEEPROM').checked;
+  let upwd = document.getElementById('upwd').value;
+  // track upload progress
+  xhr.upload.onprogress = function(event) {
+    if (event.lengthComputable) {
+      var per = event.loaded / event.total;
+      document.getElementById('status').innerText = "Progress " + Math.round(per*100) + "%%";
+    }
+  };
+  // track completion: both successful or not
+  xhr.onloadend = function() {
+    if (xhr.status == 200) {
+      document.getElementById('status').innerText = xhr.response;
+    } else {
+      document.getElementById('status').innerText = "Firmware update failed";
+    }
+    document.getElementById('updatebutton').disabled = false;
+    document.getElementById('upwd').value = "";
+  };
+  xhr.open("POST", "/updatefirmware");
+  xhr.setRequestHeader('EraseEEPROM', eraseEEPROMvalue);
+  xhr.setRequestHeader('UPwd', upwd);
+  xhr.send(file);
+}
+
+</script>
+</head>
+<body><center>
+<h1>ESP32 Firmware Updater</h1>
+
+Select an ESP32 firmware file (.bin) to update the ESP32 firmware<br><br>
+
+<table>
+<tr><td align="center"><input type="file" id="updatefile" accept=".bin" onclick="clear_status();"><br><br></td></tr>
+<tr><td align="center"><input type="checkbox" id="EraseEEPROM" onclick="clear_status();"> Erase EEPROM<br><br></td></tr>
+<tr><td align="center">Update Password <input type="password" id="upwd" maxlength="20"><br><br></td></tr>
+<tr><td align="center"><input type="button" id="updatebutton" onclick="uploadfile(updatefile.files[0]);" value="Update"><br><br></td></tr>
+<tr><td align="center"><div id="status"> &nbsp; </div><br><br></td></tr>
+<tr><td align="center">%s Version %s</td></tr>
+</table>
+</center></body>
+</html>)rawliteral";
+
+  //strcpy(the_page, msg);
+  sprintf(the_page, msg, appName, appVersion);
+
+  httpd_resp_send(req, the_page, strlen(the_page));
+
+  return ESP_OK;
+}
+
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//
+// 
+#define UPLOAD_CACHE_SIZE 1600
+
+static esp_err_t updatefirmware_post_handler(httpd_req_t *req) {
+
+  Serial.println("In updatefirmware_post_handler");
+
+  char contentBuffer[UPLOAD_CACHE_SIZE];
+  size_t recv_size = sizeof(contentBuffer);
+  size_t contentLen = req->content_len;
+
+  char eraseEeprom[10];
+  httpd_req_get_hdr_value_str(req, "EraseEEPROM", eraseEeprom, sizeof(eraseEeprom));
+  Serial.println((String) "EraseEEPROM " + eraseEeprom );
+  char upwd[20];
+  httpd_req_get_hdr_value_str(req, "UPwd", upwd, sizeof(upwd));
+  Serial.println((String) "Update password " + upwd );
+
+  Serial.println((String) "Content length is " + contentLen);
+
+  if ( !strcmp( firmwareUpdatePassword, upwd ) ) {
+    // update password is good, do the firmware update
+
+    if (!Update.begin(UPDATE_SIZE_UNKNOWN)) { //start flash with max available size
+      Update.printError(Serial);
+      strcpy(the_page, "Firmware update failed - Update failed begin step");
+      Serial.println( the_page );
+      httpd_resp_send(req, the_page, strlen(the_page));
+      return ESP_OK;
+    }
+      
+    size_t bytes_recvd = 0;
+    while (bytes_recvd < contentLen) {
+      //if ((contentLen - bytes_recvd) < recv_size) recv_size = contentLen - bytes_recvd;
+      int ret = httpd_req_recv(req, contentBuffer, recv_size);
+      if (ret <= ESP_OK) {  /* ESP_OK return value indicates connection closed */
+        /* Check if timeout occurred */
+        if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+          httpd_resp_send_408(req);
+        }
+        return ESP_FAIL;
+      }
+      if (Update.write((uint8_t *) contentBuffer, ret) != ret) {
+        Update.printError(Serial);
+        strcpy(the_page, "Firmware update failed - Update failed write step");
+        Serial.println( the_page );
+        httpd_resp_send(req, the_page, strlen(the_page));
+        return ESP_OK;
+      }
+      bytes_recvd += ret;
+    }
+
+    if (!Update.end(true)) { //true to set the size to the current progress
+      Update.printError(Serial);
+      strcpy(the_page, "Firmware update failed - Update failed end step");
+      Serial.println( the_page );
+      httpd_resp_send(req, the_page, strlen(the_page));
+      return ESP_OK;
+    }
+
+    if ( !strcmp( "true", eraseEeprom ) ) { // erase EEPROM
+      EEPROM.end();
+      EEPROM.begin(512);
+      for (int i = 0 ; i < 512 ; i++) {
+        EEPROM.write(i, 0);  // set all EEPROM memory to 0
+      }
+      EEPROM.end();
+      strcpy(the_page, "Firmware update and EEPROM erase successful - Rebooting");
+    } else {
+      strcpy(the_page, "Firmware update successful - Rebooting");
+    }
+    Serial.println( the_page );
+    httpd_resp_send(req, the_page, strlen(the_page));
+
+    delay(5000);
+    esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP5S * uS_TO_S_FACTOR);
+    esp_deep_sleep_start();
+  } else {
+    strcpy(the_page, "Firmware update failed - Invalid password");
+  }
+
+  Serial.println( the_page );
+  httpd_resp_send(req, the_page, strlen(the_page));
+  return ESP_OK;
+}
+
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//
+// 
+
 void startCameraServer() {
 
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
@@ -3616,8 +3796,6 @@ void startCameraServer() {
   config.backlog_conn = 5;
   config.server_port = SERVER_PORT;
   config.lru_purge_enable = true;
-  //config.recv_wait_timeout=30;
-  //config.send_wait_timeout=30;
 
   httpd_uri_t index_uri = {
     .uri       = "/",
@@ -3731,7 +3909,8 @@ void startStreamServer() {
   httpd_config_t config2 = HTTPD_DEFAULT_CONFIG();
   config2.server_port = SERVER_PORT+10;
   config2.ctrl_port = 42768;
-  config2.max_uri_handlers = 4;
+  config2.stack_size = 8192;
+  config2.max_uri_handlers = 6;
   config2.max_resp_headers = 8;
   config2.lru_purge_enable = true;
 
@@ -3745,6 +3924,7 @@ void startStreamServer() {
 
   // I don't know why but the main web server sometimes hangs
   // use this uri on the stream web server to reset the camera
+  // this uri must be visited directly
   httpd_uri_t reset_uri = {
     .uri       = "/reset",
     .method    = HTTP_GET,
@@ -3752,9 +3932,28 @@ void startStreamServer() {
     .user_ctx  = NULL
   };
 
+  // these two are the GET and POST uri for the OTA firmware updater
+  // this uri must be visited directly
+  httpd_uri_t updatefirmware_get_uri = {
+    .uri       = "/updatefirmware",
+    .method    = HTTP_GET,
+    .handler   = updatefirmware_get_handler,
+    .user_ctx  = NULL
+  };
+
+  httpd_uri_t updatefirmware_post_uri = {
+    .uri       = "/updatefirmware",
+    .method    = HTTP_POST,
+    .handler   = updatefirmware_post_handler,
+    .user_ctx  = NULL
+  };
+
   if (httpd_start(&camera2_httpd, &config2) == ESP_OK) {
     httpd_register_uri_handler(camera2_httpd, &stream_uri);
     httpd_register_uri_handler(camera2_httpd, &reset_uri);
+    httpd_register_uri_handler(camera2_httpd, &updatefirmware_get_uri);
+    httpd_register_uri_handler(camera2_httpd, &updatefirmware_post_uri);
+
   }
 
 }
