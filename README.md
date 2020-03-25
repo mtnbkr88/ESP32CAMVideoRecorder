@@ -2,7 +2,7 @@
 
 ESP32-CAM Video Recorder
 
-03/18/2020 Ed Williams 
+03/25/2020 Ed Williams 
 
 This version of the ESP32-CAM Video Recorder is built on the work of many other listed in the sketch.
 It has been hugely modified to be a fairly complete web camera server with the following capabilities:
@@ -26,6 +26,7 @@ It has been hugely modified to be a fairly complete web camera server with the f
     recording time to 60 seconds.
   - Normal web traffic is on port 80, streaming comes from port 90. If accessing from 
     outside the local network, forward port X to 80 and port X+10 to port 90.
+  - OTA firmware updates on port 90.
   - The original included FTP server was removed since files can now be managed through
     the web site.
   - Note: This sketch uses a simple sendemail library I found on github by Peter Gorasz
@@ -55,3 +56,8 @@ The files ECVR_Box.stl, ECVR_Box_Cover.stl and ECVR_Box_Base.stl are stl files f
 
 ECVR_Enclosure.jpg show the completed project.
 
+If a motion detect or time trigger video is being recorded and send an email is enabled,
+the email sometimes does not get sent. The socket for connecting to the email server fails.
+I haven't figured this one out yet.
+
+The Default Partition Scheme must be used for compiling so OTA can work.
