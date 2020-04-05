@@ -16,6 +16,7 @@ It has been hugely modified to be a fairly complete web camera server with the f
   - Motion detection is available if a PIR motion sensor is connected to GPIO3 (U0RXD)
     (after the firmware is uploaded). 
   - Time action trigger.
+  - Remote trigger.
   - Motion detection and time can trigger the following actions:
     - Take a picture.
     - Take a picture and email it.
