@@ -2,7 +2,7 @@
 
 ESP32-CAM Video Recorder
 
-03/25/2020 Ed Williams 
+04/05/2020 Ed Williams 
 
 This version of the ESP32-CAM Video Recorder is built on the work of many other listed below.
 It has been hugely modified to be a fairly complete web camera server with the following
@@ -17,6 +17,7 @@ capabilities:
   - Motion detection is available if a PIR motion sensor is connected to GPIO3 (U0RXD)
     (after the firmware is uploaded). 
   - Time action trigger.
+  - Remote trigger.
   - Motion detection and time can trigger the following actions:
     - Take a picture.
     - Take a picture and email it.
@@ -203,11 +204,11 @@ const char* emailhost = "smtp.gmail.com";
 const int emailport = 465;
 const char* emailsendaddr = "YourEmail\@gmail.com";
 const char* emailsendpwd = "YourEmailPwd";
-char email[40] = "DefaultMotionDetectionEmail\@hotmail.com";  // this can be changed through Settings in the app
+char email[40] = "DefaultMotionDetectEmail\@hotmail.com";  // this can be changed through Settings in the app
 
 // OTA update stuff
 const char* appName = "ESP32CAMVideoRecorder";
-const char* appVersion = "1.1.0";
+const char* appVersion = "1.2.0";
 const char* firmwareUpdatePassword = "87654321";
 
 // should not need to edit the below
@@ -1811,14 +1812,18 @@ void do_time() {
 // 
 void process_Detection(int detection_type) {
   // detection_type 0 is motion detection, detection_type 1 is time detection
+  // detection_type 2 is remotely triggered
   int dAction;
   String dMsg;
   if ( detection_type == 0 ) {
     dAction = motionDetect;
     dMsg = "Motion detected";
-  } else {
+  } else if ( detection_type == 1) {
     dAction = triggerDetect;
     dMsg = "Time trigger";
+  } else {
+    dAction = triggerDetect; 
+    dMsg = "Remote trigger";
   }
   Serial.print( dMsg ); Serial.print(" and action will be "); Serial.println( dAction );
 
@@ -1897,7 +1902,10 @@ void process_Detection(int detection_type) {
         sprintf(send,"\<%s\>", emailsendaddr);
         char recv[40];
         sprintf(recv,"\<%s\>", email);
-        if ( e.send(send, recv, "Camera Event Detected", "Please see attachment", jpg_filenames[jpg_newest_index]) ) {
+        String msg = dMsg;
+        msg += ", please see attachment";
+        
+        if ( e.send(send, recv, "Camera Event Detected", msg, jpg_filenames[jpg_newest_index]) ) {
           Serial.print( dMsg ); Serial.println(" email sent with a picture");
         } else {
           Serial.print("Failed to send "); Serial.print( dMsg );
@@ -3619,6 +3627,42 @@ static esp_err_t settings_handler(httpd_req_t *req) {
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 //
 // 
+static esp_err_t remotetrigger_handler(httpd_req_t *req) {
+
+  print_stats("RemoteTrigger Handler  Core: ");
+
+  char buf[500];
+  size_t buf_len;
+  char param[60];
+  int savetriggerDetect;
+
+  // query parameters - get remote trigger action
+  savetriggerDetect = triggerDetect;  // save local trigger action
+  buf_len = httpd_req_get_url_query_len(req) + 1;
+  if (buf_len > 1) {
+    if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
+      if (httpd_query_key_value(buf, "action", param, sizeof(param)) == ESP_OK) {
+        triggerDetect = atoi(param);
+        if ( triggerDetect < 10 || triggerDetect > 13 ) { triggerDetect = savetriggerDetect; }
+      }
+    }
+  }
+
+  // process the remote trigger
+  process_Detection(3);
+
+  sprintf(the_page, "Remote trigger accepted, action will be %i", triggerDetect);
+  httpd_resp_send(req, the_page, strlen(the_page));
+
+  triggerDetect = savetriggerDetect;  // restore local trigger action
+
+  return ESP_OK;
+}
+
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//
+// 
 
 static esp_err_t updatefirmware_get_handler(httpd_req_t *req) {
 
@@ -3881,6 +3925,13 @@ void startCameraServer() {
     .user_ctx  = NULL
   };
 
+  httpd_uri_t remotetrigger_uri = {
+    .uri       = "/remotetrigger",
+    .method    = HTTP_GET,
+    .handler   = remotetrigger_handler,
+    .user_ctx  = NULL
+  };
+
   if (httpd_start(&camera_httpd, &config) == ESP_OK) {
     httpd_register_uri_handler(camera_httpd, &index_uri);
     httpd_register_uri_handler(camera_httpd, &record_uri);
@@ -3894,6 +3945,7 @@ void startCameraServer() {
     httpd_register_uri_handler(camera_httpd, &deletejpg_uri);
     httpd_register_uri_handler(camera_httpd, &download_uri);
     httpd_register_uri_handler(camera_httpd, &settings_uri);
+    httpd_register_uri_handler(camera_httpd, &remotetrigger_uri);
   }
   
 }
