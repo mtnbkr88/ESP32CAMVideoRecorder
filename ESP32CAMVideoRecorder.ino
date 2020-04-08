@@ -2,7 +2,7 @@
 
 ESP32-CAM Video Recorder
 
-04/05/2020 Ed Williams 
+04/07/2020 Ed Williams 
 
 This version of the ESP32-CAM Video Recorder is built on the work of many other listed below.
 It has been hugely modified to be a fairly complete web camera server with the following
@@ -207,8 +207,8 @@ const char* emailsendpwd = "YourEmailPwd";
 char email[40] = "DefaultMotionDetectEmail\@hotmail.com";  // this can be changed through Settings in the app
 
 // OTA update stuff
-const char* appName = "ESP32CAMVideoRecorder";
-const char* appVersion = "1.2.0";
+const char* appName = "ESP32CamVideoRecorder";
+const char* appVersion = "1.2.1";
 const char* firmwareUpdatePassword = "87654321";
 
 // should not need to edit the below
@@ -3357,12 +3357,14 @@ function do_triggertime() {
    <tr><td>&nbsp</td></tr>
    <tr><td>Set recording length in seconds (10 to 300):
      <input type="number" id="reclen" value="%i" min="10" max="300" style="width: 4em" onchange="do_length();"/>
+     </td></tr>
    <tr><td>&nbsp</td></tr>
    <tr><td>Set email address: 
      <input type="text" id="email" value="%s" maxlength="40" size="40">&nbsp;
      <a href="javascript:do_email();">Send Test Email</a><br>
      Wait 15 seconds for the test to complete. 
-     The new email address will be saved if the test succeeds.</td></tr>
+     The new email address will be saved if the test succeeds.
+     </td></tr>
    <tr><td>&nbsp</td></tr>
    <tr><td><span id="motion"><a href="javascript:do_motion(1);">Turn On Motion Detection</a></span>
      &nbsp;Motion detect action:
@@ -3373,7 +3375,7 @@ function do_triggertime() {
        <option value="4">Take a video and email name of video</option>
      </select><br>
      Motion detection starts again 60 seconds after a trigger.
-   </td></tr>
+     </td></tr>
    <tr><td>&nbsp</td></tr>
    <tr><td><span id="trigger"><a href="javascript:do_trigger(1);">Turn On Time Trigger</a></span>
      &nbsp;Time trigger action:
@@ -3388,7 +3390,7 @@ function do_triggertime() {
      H :
      <input type="number" id="tm" value="%i" min="0" max="59" style="width: 3em" onchange="do_triggertime();"/>
      M
-   </td></tr>
+     </td></tr>
    <tr><td>&nbsp</td></tr>
    <tr><td><a href="javascript:do_reset();">ESP32-CAM Reboot</a></td></tr>
  </table>
