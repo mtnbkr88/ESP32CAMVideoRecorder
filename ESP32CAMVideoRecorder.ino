@@ -48,6 +48,11 @@ then connect to base of transistor. Connect the emitter of the transistor to GND
 Used pinMode(GPIO_NUM_3, INPUT_PULLUP) in the setup to pull the pin high. Now when 
 motion is detected, GPIO3 will be pulled low, otherwise it will be high.
 
+For the remote trigger, connect to this server with a url like:
+<this_server>/remotetrigger?action=10  (use 10 through 13 for the desired action)
+  10 - Take a picture, 11 - Take a picture and email it, 12 - Take a video,
+  13 - Take a video and email the video name
+
 If a motion detect or time trigger video is being recorded and send an email is enabled,
 the email sometimes does not get sent. The socket for connecting to the email server fails.
 I haven't figured this one out yet.
