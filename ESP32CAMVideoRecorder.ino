@@ -2,7 +2,7 @@
 
 ESP32-CAM Video Recorder
 
-04/07/2020 Ed Williams 
+04/21/2020 Ed Williams 
 
 This version of the ESP32-CAM Video Recorder is built on the work of many other listed below.
 It has been hugely modified to be a fairly complete web camera server with the following
@@ -213,7 +213,7 @@ char email[40] = "DefaultMotionDetectEmail\@hotmail.com";  // this can be change
 
 // OTA update stuff
 const char* appName = "ESP32CamVideoRecorder";
-const char* appVersion = "1.2.1";
+const char* appVersion = "1.2.2";
 const char* firmwareUpdatePassword = "87654321";
 
 // should not need to edit the below
@@ -1833,6 +1833,8 @@ void process_Detection(int detection_type) {
   Serial.print( dMsg ); Serial.print(" and action will be "); Serial.println( dAction );
 
   // get a camera frame buffer and make sure it has something to see
+  do_fb();  // grab a frame to warm up camera
+  do_fb();  // grab a frame to warm up camera
   camera_fb_t * fb = NULL;
   xSemaphoreTake( baton, portMAX_DELAY );
   fb = esp_camera_fb_get();
@@ -3688,32 +3690,36 @@ function clear_status() {
 }
 
 function uploadfile(file) {
-  let xhr = new XMLHttpRequest();
-  document.getElementById('updatebutton').disabled = true;
-  document.getElementById('status').innerText = "Progress 0%%";
-  let eraseEEPROMvalue = document.getElementById('EraseEEPROM').checked;
-  let upwd = document.getElementById('upwd').value;
-  // track upload progress
-  xhr.upload.onprogress = function(event) {
-    if (event.lengthComputable) {
-      var per = event.loaded / event.total;
-      document.getElementById('status').innerText = "Progress " + Math.round(per*100) + "%%";
-    }
-  };
-  // track completion: both successful or not
-  xhr.onloadend = function() {
-    if (xhr.status == 200) {
-      document.getElementById('status').innerText = xhr.response;
-    } else {
-      document.getElementById('status').innerText = "Firmware update failed";
-    }
-    document.getElementById('updatebutton').disabled = false;
-    document.getElementById('upwd').value = "";
-  };
-  xhr.open("POST", "/updatefirmware");
-  xhr.setRequestHeader('EraseEEPROM', eraseEEPROMvalue);
-  xhr.setRequestHeader('UPwd', upwd);
-  xhr.send(file);
+  if ( !document.getElementById("updatefile").value ) {
+    alert( "Choose a valid firmware file" );
+  } else {
+    let xhr = new XMLHttpRequest();
+    document.getElementById('updatebutton').disabled = true;
+    document.getElementById('status').innerText = "Progress 0%%";
+    let eraseEEPROMvalue = document.getElementById('EraseEEPROM').checked;
+    let upwd = document.getElementById('upwd').value;
+    // track upload progress
+    xhr.upload.onprogress = function(event) {
+      if (event.lengthComputable) {
+        var per = event.loaded / event.total;
+        document.getElementById('status').innerText = "Progress " + Math.round(per*100) + "%%";
+      }
+    };
+    // track completion: both successful or not
+    xhr.onloadend = function() {
+      if (xhr.status == 200) {
+        document.getElementById('status').innerText = xhr.response;
+      } else {
+        document.getElementById('status').innerText = "Firmware update failed";
+      }
+      document.getElementById('updatebutton').disabled = false;
+      document.getElementById('upwd').value = "";
+    };
+    xhr.open("POST", "/updatefirmware");
+    xhr.setRequestHeader('EraseEEPROM', eraseEEPROMvalue);
+    xhr.setRequestHeader('UPwd', upwd);
+    xhr.send(file);
+  }
 }
 
 </script>
