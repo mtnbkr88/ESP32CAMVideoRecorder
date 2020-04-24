@@ -2,7 +2,7 @@
 
 ESP32-CAM Video Recorder
 
-04/21/2020 Ed Williams 
+04/24/2020 Ed Williams 
 
 This version of the ESP32-CAM Video Recorder is built on the work of many other listed below.
 It has been hugely modified to be a fairly complete web camera server with the following
@@ -213,7 +213,7 @@ char email[40] = "DefaultMotionDetectEmail\@hotmail.com";  // this can be change
 
 // OTA update stuff
 const char* appName = "ESP32CamVideoRecorder";
-const char* appVersion = "1.2.2";
+const char* appVersion = "1.2.3";
 const char* firmwareUpdatePassword = "87654321";
 
 // should not need to edit the below
@@ -2971,7 +2971,7 @@ static esp_err_t viewjpg_handler(httpd_req_t *req) {
   // allocate memory for frame buffer from PSRAM
   frameb = (uint8_t*) heap_caps_calloc(62000, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 
-  view_len = fread( frameb, 1, 32767, fbfile );  
+  view_len = fread( frameb, 1, 62000, fbfile );  
 
   httpd_resp_send(req, (const char *)frameb, view_len);
 
