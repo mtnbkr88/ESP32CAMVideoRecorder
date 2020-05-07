@@ -2,7 +2,7 @@
 
 ESP32-CAM Video Recorder
 
-04/24/2020 Ed Williams 
+05/07/2020 Ed Williams 
 
 This version of the ESP32-CAM Video Recorder is built on the work of many other listed below.
 It has been hugely modified to be a fairly complete web camera server with the following
@@ -213,7 +213,7 @@ char email[40] = "DefaultMotionDetectEmail\@hotmail.com";  // this can be change
 
 // OTA update stuff
 const char* appName = "ESP32CamVideoRecorder";
-const char* appVersion = "1.2.3";
+const char* appVersion = "1.2.4";
 const char* firmwareUpdatePassword = "87654321";
 
 // should not need to edit the below
@@ -1911,12 +1911,18 @@ void process_Detection(int detection_type) {
         sprintf(recv,"\<%s\>", email);
         String msg = dMsg;
         msg += ", please see attachment";
-        
-        if ( e.send(send, recv, "Camera Event Detected", msg, jpg_filenames[jpg_newest_index]) ) {
-          Serial.print( dMsg ); Serial.println(" email sent with a picture");
-        } else {
+
+        int j = 1;  // used to loop five times trying to send email
+        bool result = e.send(send, recv, "Camera Event Detected", msg, jpg_filenames[jpg_newest_index]); 
+        while ( !result && j < 5 ) {  // retry sending email 4 more times
+          delay( j * 1000 );
+          result = e.send(send, recv, "Camera Event Detected", msg, jpg_filenames[jpg_newest_index]); 
+          j++;   
+        }
+        if ( result ) { Serial.print( dMsg ); Serial.println(" email sent with a picture"); }
+        else { 
           Serial.print("Failed to send "); Serial.print( dMsg );
-          Serial.println(" email with a picture");
+          Serial.println(" email with a picture"); 
         }
         e.close(); // close email client
       }
@@ -1986,12 +1992,20 @@ void process_Detection(int detection_type) {
         String msg = dMsg;
         msg += ". Check ESP32-CAM web site for a video ~named ";
         msg += avi_filenames[avi_newest_index]+1;
-        if ( e.send(send, recv, "Camera Event Detected", msg, jpg_filenames[jpg_newest_index] ) ) {
-          Serial.print( dMsg ); Serial.println(" email sent with video name");
-        } else {
+
+        int j = 1;  // used to loop five times trying to send email
+        bool result = e.send(send, recv, "Camera Event Detected", msg, jpg_filenames[jpg_newest_index] ); 
+        while ( !result && j < 5 ) {  // retry sending email 4 more times
+          delay( j * 1000 );
+          result = e.send(send, recv, "Camera Event Detected", msg, jpg_filenames[jpg_newest_index] ); 
+          j++;   
+        }
+        if ( result ) { Serial.print( dMsg ); Serial.println(" email sent with video name"); }
+        else {
           Serial.print("Failed to send ");
           Serial.print( dMsg ); Serial.println(" email with video name");
         }
+
         e.close(); // close email client
       } else {
         esp_camera_fb_return(fb);
