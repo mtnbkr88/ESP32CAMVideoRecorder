@@ -2,7 +2,7 @@
 
 ESP32-CAM Video Recorder
 
-05/07/2020 Ed Williams 
+05/18/2020 Ed Williams 
 
 This version of the ESP32-CAM Video Recorder is built on the work of many other listed below.
 It has been hugely modified to be a fairly complete web camera server with the following
@@ -213,7 +213,7 @@ char email[40] = "DefaultMotionDetectEmail\@hotmail.com";  // this can be change
 
 // OTA update stuff
 const char* appName = "ESP32CamVideoRecorder";
-const char* appVersion = "1.2.4";
+const char* appVersion = "1.3.1";
 const char* firmwareUpdatePassword = "87654321";
 
 // should not need to edit the below
@@ -234,6 +234,8 @@ const char* firmwareUpdatePassword = "87654321";
 /**********************************************************************************
  * 
  *  From here to end comment below is the contents of sendemail.h
+ *
+ *  If an SD card is used, it is assumed to be mounted on /sdcard.
  * 
  */
 
@@ -243,13 +245,18 @@ const char* firmwareUpdatePassword = "87654321";
 // uncomment for debug output on Serial port
 //#define DEBUG_EMAIL_PORT
 
-// in order to send attachments, this SendEmail class assumes an SD card is mounted as /sdcard
+// uncomment if using SD card
+#define USING_SD_CARD
 
 #include <WiFiClient.h>
 #include <WiFiClientSecure.h>
 #include <base64.h>
+
+#ifdef USING_SD_CARD
 #include <FS.h>
 #include "SD_MMC.h"
+#endif
+
 
 class SendEmail
 {
@@ -263,14 +270,36 @@ class SendEmail
     WiFiClient* client;
     String readClient();
 
+    // stuff for attaching buffers (could be images and videos held in memory)
+    int attachbuffercount;  // current number of buffer attachments
+    static const int attachbuffermaxcount = 10;  // max number of buffers that can be attached
+    struct attachbufferitem {
+      char * buffername;  // name for buffer
+      char * buffer;  // pointer to buffer
+      size_t buffersize;  // number of bytes in buffer
+    };
+    attachbufferitem attachbufferitems[attachbuffermaxcount];
+    
+#ifdef USING_SD_CARD
+    // stuff for attaching files (assumes SD card is mounted as /sdcard)
+    int attachfilecount;  // current number of file attachments
+    static const int attachfilemaxcount = 10;  // max number of file that can be attached
+    struct attachfileitem {
+      char * filename;  // name for file
+    };
+    attachfileitem attachfileitems[attachfilemaxcount];
+#endif
+    
   public:
     SendEmail(const String& host, const int port, const String& user, const String& passwd, const int timeout, const bool ssl);
 
-    // attachment is a full path filename to a file on the sd card
-    // set attachment to NULL to not include an attachment
-    bool send(const String& from, const String& to, const String& subject, const String& msg, const String& attachment);
+    void attachbuffer(char * name, char * bufptr, size_t bufsize);
 
-    void close() {client->stop(); delete client;}
+    void attachfile(char * name);
+    
+    bool send(const String& from, const String& to, const String& subject, const String& msg);
+
+    void close();
 };
 
 #endif
@@ -1912,11 +1941,13 @@ void process_Detection(int detection_type) {
         String msg = dMsg;
         msg += ", please see attachment";
 
+        e.attachfile( jpg_filenames[jpg_newest_index] );
+
         int j = 1;  // used to loop five times trying to send email
-        bool result = e.send(send, recv, "Camera Event Detected", msg, jpg_filenames[jpg_newest_index]); 
+        bool result = e.send(send, recv, "Camera Event Detected", msg); 
         while ( !result && j < 5 ) {  // retry sending email 4 more times
           delay( j * 1000 );
-          result = e.send(send, recv, "Camera Event Detected", msg, jpg_filenames[jpg_newest_index]); 
+          result = e.send(send, recv, "Camera Event Detected", msg); 
           j++;   
         }
         if ( result ) { Serial.print( dMsg ); Serial.println(" email sent with a picture"); }
@@ -1993,11 +2024,13 @@ void process_Detection(int detection_type) {
         msg += ". Check ESP32-CAM web site for a video ~named ";
         msg += avi_filenames[avi_newest_index]+1;
 
+        e.attachfile( jpg_filenames[jpg_newest_index] );
+
         int j = 1;  // used to loop five times trying to send email
-        bool result = e.send(send, recv, "Camera Event Detected", msg, jpg_filenames[jpg_newest_index] ); 
+        bool result = e.send(send, recv, "Camera Event Detected", msg); 
         while ( !result && j < 5 ) {  // retry sending email 4 more times
           delay( j * 1000 );
-          result = e.send(send, recv, "Camera Event Detected", msg, jpg_filenames[jpg_newest_index] ); 
+          result = e.send(send, recv, "Camera Event Detected", msg); 
           j++;   
         }
         if ( result ) { Serial.print( dMsg ); Serial.println(" email sent with video name"); }
@@ -3562,8 +3595,8 @@ static esp_err_t settings_handler(httpd_req_t *req) {
     char recv[40];
     sprintf(recv,"\<%s\>", new_email);
     //Serial.println("SendEmail object created, now trying to send...");
-    if ( e.send(send, recv, "ESP32-CAM Test Email", msg, jpg_filenames[jpg_newest_index]) ) {
-    //if ( e.send(send, recv, "ESP32-CAM Test Email", msg, NULL) ) {
+    e.attachfile( jpg_filenames[jpg_newest_index] );
+    if ( e.send(send, recv, "ESP32-CAM Test Email", msg) ) {
       strcpy(email,new_email);
       sprintf(the_page, "New email address is %s", email);    
       EEPROM.put(EEPROM_EMAIL_ADDR, email);
@@ -4148,9 +4181,11 @@ void loop()
 /*****************************************************************************
  * 
  *  From here to the end is the contents of sendemail.cpp
+ *  This version can send text or binary objects (jpg, avi) from memory as attachments
+ *  and can send files from the SD card mounted on /sdcard.
  *  
  *  *** Uncomment the #include if the below is moved back into sendemail.cpp ***
- *  
+ *
  */
 
 //#include "sendemail.h"
@@ -4158,7 +4193,10 @@ void loop()
 SendEmail::SendEmail(const String& host, const int port, const String& user, const String& passwd, const int timeout, const bool ssl) :
     host(host), port(port), user(user), passwd(passwd), timeout(timeout), ssl(ssl), client((ssl) ? new WiFiClientSecure() : new WiFiClient())
 {
-
+  attachbuffercount = 0;
+#ifdef USING_SD_CARD
+  attachfilecount = 0;
+#endif
 }
 
 String SendEmail::readClient()
@@ -4169,9 +4207,29 @@ String SendEmail::readClient()
   return r;
 }
 
-// attachment is a full path filename to a file on the SD card
-// set attachment to NULL to not include an attachment
-bool SendEmail::send(const String& from, const String& to, const String& subject, const String& msg, const String& attachment)
+void SendEmail::attachbuffer(char * name, char * bufptr, size_t bufsize)
+{
+  attachbufferitems[attachbuffercount].buffername = (char *) malloc( strlen(name)+1 );
+  strcpy( attachbufferitems[attachbuffercount].buffername, name ); 
+  attachbufferitems[attachbuffercount].buffer = bufptr;
+  attachbufferitems[attachbuffercount].buffersize = bufsize;
+  
+  attachbuffercount++;
+}
+
+#ifdef USING_SD_CARD
+void SendEmail::attachfile(char * name)
+{
+  attachfileitems[attachfilecount].filename = (char *) malloc( strlen(name)+8 );
+  strcpy( attachfileitems[attachfilecount].filename, "/sdcard" );
+  strcat( attachfileitems[attachfilecount].filename, name );
+  
+  attachfilecount++;
+}
+#endif
+
+
+bool SendEmail::send(const String& from, const String& to, const String& subject, const String& msg)
 {
   if (!host.length())
   {
@@ -4352,25 +4410,84 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
   Serial.print("CLIENT->SERVER: ");
   Serial.println(buffer);
 #endif
-  if ( attachment ) {
+  // process buffer attachments
+  for ( int i = 0; i < attachbuffercount; i++ ) {
+    char * pos = attachbufferitems[i].buffer;
+    size_t alen = attachbufferitems[i].buffersize;
+    base64 b;
+    
+    buffer = F("\r\n--{BOUNDARY}\r\n");
+    buffer += F("Content-Type: application/octet-stream\r\n");
+    buffer += F("Content-Transfer-Encoding: base64\r\n");
+    buffer += F("Content-Disposition: attachment;filename=\"");
+    buffer += attachbufferitems[i].buffername;
+    buffer += F("\"\r\n");
+    client->println(buffer);
+#ifdef DEBUG_EMAIL_PORT
+  Serial.print("CLIENT->SERVER: ");
+  Serial.println(buffer);
+#endif
+    // read data from buffer, base64 encode and send it
+    // 3 binary bytes (57) becomes 4 base64 bytes (76)
+    // plus CRLF is ideal for one line of MIME data
+    // 570 byes will be read at a time and sent as ten lines of base64 data
+    size_t flen = 570;  
+    uint8_t * fdata = (uint8_t*) malloc( flen );
+    if ( alen < flen ) flen = alen;
+    // read data from buffer
+    memcpy( fdata, pos, flen ); 
+    String buffer2 = "";
+    size_t bytecount = 0;
+    while ( flen > 0 ) {
+      while ( flen > 56 ) {
+        // convert to base64 in 57 byte chunks
+        buffer = b.encode( fdata+bytecount, 57 );
+        buffer2 += buffer;
+        // tack on CRLF
+        buffer2 += "\r\n";
+        bytecount += 57;
+        flen -= 57;
+      }
+      if ( flen > 0 ) {
+        // convert last set of byes to base64
+        buffer = b.encode( fdata+bytecount, flen );
+        buffer2 += buffer;
+        // tack on CRLF
+        buffer2 += "\r\n";
+      }
+      // send the lines in buffer
+      client->println( buffer2 );
+      buffer2 = "";
+      delay(10);
+      // calculate bytes left to send
+      alen = alen - bytecount - flen;
+      pos = pos + bytecount + flen;
+      flen = 570;
+      if ( alen < flen ) flen = alen;
+      // read data from buffer
+      if ( flen > 0 ) memcpy( fdata, pos, flen ); 
+      bytecount = 0;
+    }
+    free( fdata );
+  }
+
+#ifdef USING_SD_CARD
+  // process file attachments
+  for ( int i = 0; i < attachfilecount; i++ ) {
     FILE *atfile = NULL;
-    char * aname = (char * ) malloc( attachment.length() + 8 );
-    char * pos = NULL;
+    char aname[110];
+    char * pos = NULL;  // points to actual file name
     size_t flen;
     base64 b;
-    // full path to file on SD card
-    strcpy( aname, "/sdcard" );
-    strcat( aname, attachment.c_str() );
-    if ( atfile = fopen(aname, "r") ) {
+    if ( atfile = fopen(attachfileitems[i].filename, "r") ) {
       // get filename from attachment name
-      pos = strrchr( aname, '/' );
-      strcpy( aname, pos+1 );
+      pos = strrchr( attachfileitems[i].filename, '/' ) + 1;
       // attachment will be pulled from the file named
       buffer = F("\r\n--{BOUNDARY}\r\n");
       buffer += F("Content-Type: application/octet-stream\r\n");
       buffer += F("Content-Transfer-Encoding: base64\r\n");
       buffer += F("Content-Disposition: attachment;filename=\"");
-      buffer += aname ;
+      buffer += pos ;
       buffer += F("\"\r\n");
       client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT
@@ -4415,8 +4532,9 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
       fclose( atfile );
       free( fdata );
     } 
-    free( aname );
   }
+#endif
+
   buffer = F("\r\n--{BOUNDARY}--\r\n.");
   client->println(buffer);
 #ifdef DEBUG_EMAIL_PORT
@@ -4430,4 +4548,25 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
   Serial.println(buffer);
 #endif
   return true;
+}
+
+void SendEmail::close() {
+
+  // cleanup buffer attachments
+  for ( int i = 0; i < attachbuffercount; i++ ) {
+    free( attachbufferitems[i].buffername );
+    attachbufferitems[i].buffername = NULL;
+  }
+
+#ifdef USING_SD_CARD
+  // cleanup file attachments
+  for ( int i = 0; i < attachfilecount; i++ ) {
+    free( attachfileitems[i].filename );
+    attachfileitems[i].filename = NULL;
+  }
+#endif
+  
+  client->stop();
+  delete client;
+
 }
