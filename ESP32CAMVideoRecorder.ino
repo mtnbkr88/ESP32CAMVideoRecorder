@@ -2,7 +2,7 @@
 
 ESP32-CAM Video Recorder
 
-05/18/2020 Ed Williams 
+05/22/2020 Ed Williams 
 
 This version of the ESP32-CAM Video Recorder is built on the work of many other listed below.
 It has been hugely modified to be a fairly complete web camera server with the following
@@ -213,7 +213,7 @@ char email[40] = "DefaultMotionDetectEmail\@hotmail.com";  // this can be change
 
 // OTA update stuff
 const char* appName = "ESP32CamVideoRecorder";
-const char* appVersion = "1.3.1";
+const char* appVersion = "1.3.4";
 const char* firmwareUpdatePassword = "87654321";
 
 // should not need to edit the below
@@ -643,7 +643,6 @@ void setup() {
   pinMode(33, OUTPUT);    // little red led on back of chip
   digitalWrite(33, LOW);  // turn on the red LED on the back of chip
 
-  WiFi.persistent(false);
   eventID = WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
     Serial.print("WiFi lost connection. Reason: ");
     Serial.println(info.disconnected.reason);
@@ -654,6 +653,7 @@ void setup() {
     } else {
       Serial.println("*** WiFi disconnected ???...");
     }
+    
   }, WiFiEvent_t::SYSTEM_EVENT_STA_DISCONNECTED);
 
   if (init_wifi()) { // Connected to WiFi
@@ -1163,29 +1163,39 @@ bool init_wifi()
 {
   int connAttempts = 0;
   
-    // this is the fixed ip stuff 
-    IPAddress local_IP(IP_Address);
+  // this is the fixed ip stuff 
+  IPAddress local_IP(IP_Address);
 
-    // Set your Gateway IP address
-    IPAddress gateway(IP_Gateway);
+  // Set your Gateway IP address
+  IPAddress gateway(IP_Gateway);
 
-    IPAddress subnet(IP_Subnet);
-    IPAddress primaryDNS(IP_PrimaryDNS); // optional
-    IPAddress secondaryDNS(IP_SecondaryDNS); // optional
+  IPAddress subnet(IP_Subnet);
+  IPAddress primaryDNS(IP_PrimaryDNS); // optional
+  IPAddress secondaryDNS(IP_SecondaryDNS); // optional
 
-    WiFi.mode(WIFI_STA);
+  //WiFi.persistent(false);
+  
+  WiFi.mode(WIFI_STA);
 
-    WiFi.setHostname("ESP32CAM33");  // does not seem to do anything with my wifi router ???
-
-    if (!WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS)) {
+  if (!WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS)) {
     Serial.println("STA Failed to configure");
     major_fail();
-    }
+  }
 
-    WiFi.printDiag(Serial);
+  WiFi.setSleep(false);  // turn off wifi power saving, makes response MUCH faster
+  
+  WiFi.printDiag(Serial);
 
-    WiFi.begin(ssid, password);
-    while (WiFi.status() != WL_CONNECTED ) {
+  // uncomment the below to use DHCP
+  //WiFi.config(INADDR_NONE, INADDR_NONE, INADDR_NONE); // workaround for bug in WiFi class
+
+  WiFi.begin(ssid, password);
+
+  char hostname[12];
+  sprintf( hostname, "ESP32CAM%d", IP_Address[3] );
+  WiFi.setHostname(hostname);  // only effective when using DHCP
+
+  while (WiFi.status() != WL_CONNECTED ) {
     delay(500);
     Serial.print(".");
     if (connAttempts > 10) {
@@ -1195,9 +1205,9 @@ bool init_wifi()
       return false;
     }
     connAttempts++;
-    }
-    return true;
+  }
 
+  return true;
 }
 
 void init_time()
@@ -1841,6 +1851,7 @@ void do_time() {
 }
 
 
+uint8_t * frameb = NULL;  // will be populated by avi_fb_get() and jpg_fb_get()
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 //
 // 
@@ -1878,6 +1889,13 @@ void process_Detection(int detection_type) {
     xSemaphoreGive( baton );
     Serial.println("Skipping camera event action, camera buffer has nothing interesting to show");
   } else {
+    frameb = (uint8_t*) heap_caps_calloc(fb->len, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    memcpy( frameb, fb->buf, fb->len);
+    size_t frameb_len = fb->len;
+ 
+    esp_camera_fb_return(fb);
+    xSemaphoreGive( baton );
+
     if (  dAction == 10 || dAction == 11 ) { // take a picture
       // build name for new jpg file
       time(&now);
@@ -1920,9 +1938,7 @@ void process_Detection(int detection_type) {
       strcpy(jpg_filenames[jpg_newest_index],fname+7);
 
       // save the frame to the jpg file
-      size_t err = fwrite(fb->buf, 1, fb->len, jpgfile);
-      esp_camera_fb_return(fb);
-      xSemaphoreGive( baton );
+      size_t err = fwrite(frameb, 1, frameb_len, jpgfile);
       fclose(jpgfile);
       if (err == 0 ) {
         Serial.println("Error on jpg write");
@@ -2004,15 +2020,12 @@ void process_Detection(int detection_type) {
         strcpy(jpg_filenames[jpg_newest_index],fname+7);
 
         // save the frame to the jpg file
-        size_t err = fwrite(fb->buf, 1, fb->len, jpgfile);
-        esp_camera_fb_return(fb);
-        xSemaphoreGive( baton );
+        size_t err = fwrite(frameb, 1, frameb_len, jpgfile);
         fclose(jpgfile);
         if (err == 0 ) {
           Serial.println("Error on jpg write");
           major_fail();
         }
-        delay(5000);
 
         SendEmail e(emailhost, emailport, emailsendaddr, emailsendpwd, 5000, true); 
         // Send Email
@@ -2040,11 +2053,9 @@ void process_Detection(int detection_type) {
         }
 
         e.close(); // close email client
-      } else {
-        esp_camera_fb_return(fb);
-        xSemaphoreGive( baton );
       }
     }
+    free(frameb);
   }
 }
 
@@ -2551,7 +2562,6 @@ static esp_err_t savedavi_handler(httpd_req_t *req) {
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 //
 // 
-uint8_t * frameb = NULL;  // will be populated by avi_fb_get() and jpg_fb_get()
 size_t avi_fb_get() { 
   // this function assumes file pointer is at start of frame to be read  
 
