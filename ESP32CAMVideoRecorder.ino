@@ -2,7 +2,7 @@
 
 ESP32-CAM Video Recorder
 
-05/22/2020 Ed Williams 
+05/30/2020 Ed Williams 
 
 This version of the ESP32-CAM Video Recorder is built on the work of many other listed below.
 It has been hugely modified to be a fairly complete web camera server with the following
@@ -213,7 +213,7 @@ char email[40] = "DefaultMotionDetectEmail\@hotmail.com";  // this can be change
 
 // OTA update stuff
 const char* appName = "ESP32CamVideoRecorder";
-const char* appVersion = "1.3.4";
+const char* appVersion = "1.3.6";
 const char* firmwareUpdatePassword = "87654321";
 
 // should not need to edit the below
@@ -715,6 +715,9 @@ void setup() {
 
   print_stats("After SD init Core: ");
 
+  // start stream server
+  startStreamServer();
+
   // delete all files with zero length
   deleteZeroLengthFiles();
   
@@ -792,10 +795,8 @@ void setup() {
   }
   Serial.println( "" );
   
-
-  // start web servers
+  // start web server
   startCameraServer();
-  startStreamServer();
 
   print_stats("After Server init Core: ");
 
@@ -1945,7 +1946,7 @@ void process_Detection(int detection_type) {
         major_fail();
       }
       Serial.print( dMsg ); Serial.println(" picture taken");
-      delay(3);
+      delay(1000);
 
       if (  dAction == 11 ) {  // email the picture
         SendEmail e(emailhost, emailport, emailsendaddr, emailsendpwd, 5000, true); 
@@ -4183,7 +4184,7 @@ void loop()
 */    
   }
 
-  delay(10);
+  delay(200);
 
 }
 
@@ -4245,6 +4246,8 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
   {
     return false;
   }
+  String buffer2((char *)0);
+  buffer2.reserve(800);  // really should only use 780 of it
   client->stop();
   client->setTimeout(timeout);
   // smtp connect
@@ -4440,13 +4443,14 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
     // read data from buffer, base64 encode and send it
     // 3 binary bytes (57) becomes 4 base64 bytes (76)
     // plus CRLF is ideal for one line of MIME data
-    // 570 byes will be read at a time and sent as ten lines of base64 data
+    // 570 bytes will be read at a time and sent as ten lines of base64 data
     size_t flen = 570;  
     uint8_t * fdata = (uint8_t*) malloc( flen );
     if ( alen < flen ) flen = alen;
     // read data from buffer
     memcpy( fdata, pos, flen ); 
-    String buffer2 = "";
+    delay(10);
+    buffer2 = "";
     size_t bytecount = 0;
     while ( flen > 0 ) {
       while ( flen > 56 ) {
@@ -4459,7 +4463,7 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
         flen -= 57;
       }
       if ( flen > 0 ) {
-        // convert last set of byes to base64
+        // convert last set of bytes to base64
         buffer = b.encode( fdata+bytecount, flen );
         buffer2 += buffer;
         // tack on CRLF
@@ -4479,6 +4483,7 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
       bytecount = 0;
     }
     free( fdata );
+    fdata = NULL;
   }
 
 #ifdef USING_SD_CARD
@@ -4507,12 +4512,12 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
       // read data from file, base64 encode and send it
       // 3 binary bytes (57) becomes 4 base64 bytes (76)
       // plus CRLF is ideal for one line of MIME data
-      // 570 byes will be read at a time and sent as ten lines of base64 data
-      uint8_t * fdata = NULL;  
-      fdata = (uint8_t*) malloc( 570 );
+      // 570 bytes will be read at a time and sent as ten lines of base64 data
+      uint8_t * fdata = (uint8_t*) malloc( 570 );
       // read data from file
       flen = fread( fdata, 1, 570, atfile );
-      String buffer2 = "";
+      delay(10);
+      buffer2 = "";
       int lc = 0;
       size_t bytecount = 0;
       while ( flen > 0 ) {
@@ -4526,7 +4531,7 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
           flen -= 57;
         }
         if ( flen > 0 ) {
-          // convert last set of byes to base64
+          // convert last set of bytes to base64
           buffer = b.encode( fdata+bytecount, flen );
           buffer2 += buffer;
           // tack on CRLF
@@ -4541,6 +4546,7 @@ bool SendEmail::send(const String& from, const String& to, const String& subject
       }
       fclose( atfile );
       free( fdata );
+      fdata = NULL;
     } 
   }
 #endif
