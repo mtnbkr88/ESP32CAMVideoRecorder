@@ -2,14 +2,14 @@
 
 ESP32-CAM Video Recorder
 
-06/30/2020 Ed Williams 
+06/08/2020 Ed Williams 
 
 This version of the ESP32-CAM Video Recorder is built on the work of many other listed below.
 It has been hugely modified to be a fairly complete web camera server with the following
 capabilities:
   - Record AVI video and peak, stream, download or delete the saved videos.
   - Take JPG pictures and view, download or delete the saved pictures.
-  - Save up to 250 videos and 250 pictures on the SD card. Beyond that as more are saved 
+  - Save up to 100 videos and 100 pictures on the SD card. Beyond that as more are saved 
     the oldest are deleted.
   - Removed the ability to change the size, frame rate and quality. They are permanently 
     set to size 640x480, 125ms and quality 10.
@@ -213,7 +213,7 @@ char email[40] = "DefaultMotionDetectEmail\@hotmail.com";  // this can be change
 
 // OTA update stuff
 const char* appName = "ESP32CamVideoRecorder";
-const char* appVersion = "1.3.7";
+const char* appVersion = "1.3.8b";
 const char* firmwareUpdatePassword = "87654321";
 
 // should not need to edit the below
@@ -331,14 +331,14 @@ int xlength = total_frames * capture_interval / 1000;
 int new_config = 3;         // starts in VGA mode
 
 
-const int MAX_AVI_Files_On_SD = 250;  // max number of avi files to keep
+const int MAX_AVI_Files_On_SD = 100;  // max number of avi files to keep
 const int MAX_FILENAME_LENGTH = 40;
 char avi_filenames[MAX_AVI_Files_On_SD][MAX_FILENAME_LENGTH] = {'\0'};  // array of avi file names on SD
 int avi_file_count = 0;  // count of avi files on SD
 int avi_newest_index = 0;  // points to newest filename in avi_filenames
 int avi_oldest_index = 0;  // points to oldest filename in avi_filenames
 
-const int MAX_JPG_Files_On_SD = 250;  // max number of jpg files to keep
+const int MAX_JPG_Files_On_SD = 100;  // max number of jpg files to keep
 const int MAX_JPG_FILENAME_LENGTH = 25;
 char jpg_filenames[MAX_JPG_Files_On_SD][MAX_JPG_FILENAME_LENGTH] = {'\0'};  // array of jpg file names on SD
 int jpg_file_count = 0;  // count of jpg files on SD
@@ -639,6 +639,8 @@ void setup() {
   Serial.println("ESP-CAM Video Recorder\n");
   Serial.println("-------------------------------------");
 
+  Serial.print("CPU frequency: "); Serial.println( ESP.getCpuFreqMHz() );
+
   print_stats("Begin setup Core: ");
  
   pinMode(33, OUTPUT);    // little red led on back of chip
@@ -809,10 +811,13 @@ void setup() {
 
   // temporary grab memory to keep camera from taking too much
   static char * memtmp = (char *) malloc(32767);
+  static char * memtmp2 = (char *) malloc(32767);
   
   config_camera();
 
   // give the memory back
+  free(memtmp2);
+  memtmp2 = NULL;
   free(memtmp);
   memtmp = NULL;
   
@@ -881,8 +886,8 @@ void print_stats(char *the_message) {
   Serial.print(" Free Heap: "); Serial.print(ESP.getFreeHeap());
   Serial.print(", priority = "); Serial.println(uxTaskPriorityGet(NULL));
 
-  printf(" Himem is %dKiB, Himem free %dKiB, ", (int)ESP.getPsramSize() / 1024, (int)ESP.getFreePsram() / 1024);
-  printf("Flash is %dKiB, Sketch is %dKiB \n", (int)ESP.getFlashChipSize() / 1024, (int)ESP.getSketchSize() / 1024);
+  //printf(" Himem is %dKiB, Himem free %dKiB, ", (int)ESP.getPsramSize() / 1024, (int)ESP.getFreePsram() / 1024);
+  //printf("Flash is %dKiB, Sketch is %dKiB \n", (int)ESP.getFlashChipSize() / 1024, (int)ESP.getSketchSize() / 1024);
 
   Serial.print(" Write Q: "); Serial.print((fb_in + fb_max - fb_out) % fb_max); Serial.print(" in/out  "); Serial.print(fb_in); Serial.print(" / "); Serial.println(fb_out);
   Serial.println(" ");
@@ -1187,7 +1192,7 @@ bool init_wifi()
     major_fail();
   }
 
-  WiFi.setSleep(false);  // turn off wifi power saving, makes response MUCH faster
+  //WiFi.setSleep(false);  // turn off wifi power saving, makes response MUCH faster
   
   WiFi.printDiag(Serial);
 
@@ -1385,7 +1390,8 @@ static esp_err_t config_camera() {
     config.pin_sscb_scl = SIOC_GPIO_NUM;
     config.pin_pwdn = PWDN_GPIO_NUM;
     config.pin_reset = RESET_GPIO_NUM;
-    config.xclk_freq_hz = 20000000;
+    //config.xclk_freq_hz = 20000000;
+    config.xclk_freq_hz = 10000000;
     config.pixel_format = PIXFORMAT_JPEG;
 
     if (new_config == 3) {
@@ -1416,7 +1422,7 @@ static esp_err_t config_camera() {
       major_fail();
     }
 
-    print_stats("After the new init runs on Core: ");
+    print_stats("After new camera init runs on Core: ");
 
     delay(500);
   }
@@ -3417,7 +3423,7 @@ function do_triggertime() {
  <table id="actions">
    <tr><td>All video recordings default to VGA (640x480), one frame every 125ms for 60 seconds.<br>
            In the video name, L is length in seconds and M is size in megabytes. The default length can be changed.<br>
-           Up to 250 videos and 250 pictures can be saved. After that the oldest are deleted as new are created.<br>
+           Up to 100 videos and 100 pictures can be saved. After that the oldest are deleted as new are created.<br>
            If the stream fails to show on the main page, reload the page until it shows.<br>
            Click the taken picture with the left button to dismiss it.<br>
    </td></tr>
@@ -4116,14 +4122,20 @@ unsigned long motion1min = 0;
 
 void loop()
 {
-
+/*
   if (WiFi.status() != WL_CONNECTED) {
     init_wifi();
     Serial.println("***** WiFi reconnect *****");
   }
-
+*/
   if (millis() - last_wakeup_1sec > (1000) ) {       // 1 second
     last_wakeup_1sec = millis();
+
+    if (WiFi.status() != WL_CONNECTED) {
+      init_wifi();
+      Serial.println("***** WiFi reconnect *****");
+    }
+
     if ( motionDetect > 9 && motion == 0 && !digitalRead( PIR_Pin ) ) { // Low if motion detected
       int mcount = 0;
       while ( !digitalRead ( PIR_Pin ) && mcount < 4 ) {
