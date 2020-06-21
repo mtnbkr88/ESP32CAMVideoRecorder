@@ -2,7 +2,7 @@
 
 ESP32-CAM Video Recorder
 
-06/08/2020 Ed Williams 
+06/20/2020 Ed Williams 
 
 This version of the ESP32-CAM Video Recorder is built on the work of many other listed below.
 It has been hugely modified to be a fairly complete web camera server with the following
@@ -193,7 +193,7 @@ end of others old comments *****************************************************
 const char* ssid = "YourSSID";
 const char* password = "YourSSIDPwd";
 // fixed IP info
-const uint8_t IP_Address[4] = {192, 168, 2, 33};
+const uint8_t IP_Address[4] = {192, 168, 2, 30};
 const uint8_t IP_Gateway[4] = {192, 168, 2, 1};
 const uint8_t IP_Subnet[4] = {255, 255, 255, 0};
 const uint8_t IP_PrimaryDNS[4] = {8, 8, 8, 8};
@@ -213,7 +213,7 @@ char email[40] = "DefaultMotionDetectEmail\@hotmail.com";  // this can be change
 
 // OTA update stuff
 const char* appName = "ESP32CamVideoRecorder";
-const char* appVersion = "1.3.8b";
+const char* appVersion = "1.4.0";
 const char* firmwareUpdatePassword = "87654321";
 
 // should not need to edit the below
@@ -622,6 +622,62 @@ WiFiEventId_t eventID;
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
 
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//
+// idle_task0() - used to calculate system load on CPU0 (run at priority 0)
+//
+static unsigned long idle_cnt0 = 0LL;
+
+static void idle_task0(void *parm) {
+  while(1==1) {
+    int64_t now = esp_timer_get_time();     // time anchor
+    vTaskDelay(0 / portTICK_RATE_MS);
+    int64_t now2 = esp_timer_get_time();
+    idle_cnt0 += (now2 - now) / 1000;        // diff
+  }
+}
+
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//
+// idle_task1() - used to calculate system load on CPU1 (run at priority 0)
+//
+static unsigned long idle_cnt1 = 0LL;
+
+static void idle_task1(void *parm) {
+  while(1==1) {
+    int64_t now = esp_timer_get_time();     // time anchor
+    vTaskDelay(0 / portTICK_RATE_MS);
+    int64_t now2 = esp_timer_get_time();
+    idle_cnt1 += (now2 - now) / 1000;        // diff
+  }
+}
+
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+//
+// mon_task() - used to display system load (run at priority 10)
+//
+static int mon_task_freq = 60;  // how often mon_task will wake in seconds
+
+static void mon_task(void *parm) {
+  while(1==1) {
+    float new_cnt0 =  (float)idle_cnt0;    // Save the count for printing it ...
+    float new_cnt1 =  (float)idle_cnt1;    // Save the count for printing it ...
+        
+    // Compensate for the 100 ms delay artifact: 900 ms = 100%
+    float cpu_percent0 = ((99.9 / 90.) * new_cnt0) / (mon_task_freq * 10);
+    float cpu_percent1 = ((99.9 / 90.) * new_cnt1) / (mon_task_freq * 10);
+    printf("Load (CPU0, CPU1): %.0f%%, %.0f%%\n", 100 - cpu_percent0, 
+      100 - cpu_percent1); fflush(stdout);
+    idle_cnt0 = 0;                        // Reset variable
+    idle_cnt1 = 0;                        // Reset variable
+    vTaskDelay((mon_task_freq * 1000) / portTICK_RATE_MS);
+  }
+}
+
+
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 //
 // setup() runs on cpu 1
@@ -639,7 +695,7 @@ void setup() {
   Serial.println("ESP-CAM Video Recorder\n");
   Serial.println("-------------------------------------");
 
-  Serial.print("CPU frequency: "); Serial.println( ESP.getCpuFreqMHz() );
+  Serial.print("CPU frequency (MHz): "); Serial.println( ESP.getCpuFreqMHz() );
 
   print_stats("Begin setup Core: ");
  
@@ -700,6 +756,16 @@ void setup() {
 
   delay(500);
 
+  //uncomment the section below to report CPU load every 60 seconds
+/*
+  // create tasks for monitoring system load  
+  xTaskCreatePinnedToCore(idle_task0, "idle_task0", 1024 * 2, NULL,  0, NULL, 0);
+  xTaskCreatePinnedToCore(idle_task1, "idle_task1", 1024 * 2, NULL,  0, NULL, 1);
+  xTaskCreate(mon_task, "mon_task", 1024 * 2, NULL, 10, NULL);
+*/
+
+  delay(500);
+  
   print_stats("After Task 1 Core: ");
 
   if (psramFound()) {
