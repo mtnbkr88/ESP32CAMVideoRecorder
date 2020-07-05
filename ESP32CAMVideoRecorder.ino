@@ -2,7 +2,7 @@
 
 ESP32-CAM Video Recorder
 
-06/20/2020 Ed Williams 
+07/05/2020 Ed Williams 
 
 This version of the ESP32-CAM Video Recorder is built on the work of many other listed below.
 It has been hugely modified to be a fairly complete web camera server with the following
@@ -213,7 +213,7 @@ char email[40] = "DefaultMotionDetectEmail\@hotmail.com";  // this can be change
 
 // OTA update stuff
 const char* appName = "ESP32CamVideoRecorder";
-const char* appVersion = "1.4.0";
+const char* appVersion = "1.4.1";
 const char* firmwareUpdatePassword = "87654321";
 
 // should not need to edit the below
@@ -1482,6 +1482,17 @@ static esp_err_t config_camera() {
     print_stats("After deinit() runs on Core: ");
 
     // camera init
+    // the below will hopefully solve the Camera init failed with error 0x20004 error
+    gpio_config_t gpio_pwr_config;
+    gpio_pwr_config.pin_bit_mask = (1ULL << GPIO_NUM_32);
+    gpio_pwr_config.mode = GPIO_MODE_OUTPUT;
+    gpio_pwr_config.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    gpio_pwr_config.pull_up_en = GPIO_PULLUP_DISABLE;
+    gpio_pwr_config.intr_type = GPIO_INTR_DISABLE;
+    gpio_config(&gpio_pwr_config);
+    gpio_set_level(GPIO_NUM_32,0);  // set GPIO32 low to power up camera
+    vTaskDelay(10/ portTICK_PERIOD_MS);
+
     cam_err = esp_camera_init(&config);
     if (cam_err != ESP_OK) {
       Serial.printf("Camera init failed with error 0x%x", cam_err);
