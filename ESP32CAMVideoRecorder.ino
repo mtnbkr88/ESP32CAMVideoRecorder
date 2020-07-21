@@ -2,7 +2,7 @@
 
 ESP32-CAM Video Recorder
 
-07/05/2020 Ed Williams 
+07/20/2020 Ed Williams 
 
 This version of the ESP32-CAM Video Recorder is built on the work of many other listed below.
 It has been hugely modified to be a fairly complete web camera server with the following
@@ -190,8 +190,8 @@ end of others old comments *****************************************************
 // edit the below for local settings 
 
 // wifi info
-const char* ssid = "YourSSID";
-const char* password = "YourSSIDPwd";
+const char* ssid = "WilliamsHome4_EXT";
+const char* password = "3103864271";
 // fixed IP info
 const uint8_t IP_Address[4] = {192, 168, 2, 30};
 const uint8_t IP_Gateway[4] = {192, 168, 2, 1};
@@ -213,7 +213,7 @@ char email[40] = "DefaultMotionDetectEmail\@hotmail.com";  // this can be change
 
 // OTA update stuff
 const char* appName = "ESP32CamVideoRecorder";
-const char* appVersion = "1.4.1";
+const char* appVersion = "1.4.2";
 const char* firmwareUpdatePassword = "87654321";
 
 // should not need to edit the below
@@ -1251,6 +1251,8 @@ bool init_wifi()
 
   //WiFi.persistent(false);
   
+  WiFi.disconnect();
+  WiFi.mode(WIFI_OFF);
   WiFi.mode(WIFI_STA);
 
   if (!WiFi.config(local_IP, gateway, subnet, primaryDNS, secondaryDNS)) {
@@ -1482,17 +1484,6 @@ static esp_err_t config_camera() {
     print_stats("After deinit() runs on Core: ");
 
     // camera init
-    // the below will hopefully solve the Camera init failed with error 0x20004 error
-    gpio_config_t gpio_pwr_config;
-    gpio_pwr_config.pin_bit_mask = (1ULL << GPIO_NUM_32);
-    gpio_pwr_config.mode = GPIO_MODE_OUTPUT;
-    gpio_pwr_config.pull_down_en = GPIO_PULLDOWN_DISABLE;
-    gpio_pwr_config.pull_up_en = GPIO_PULLUP_DISABLE;
-    gpio_pwr_config.intr_type = GPIO_INTR_DISABLE;
-    gpio_config(&gpio_pwr_config);
-    gpio_set_level(GPIO_NUM_32,0);  // set GPIO32 low to power up camera
-    vTaskDelay(10/ portTICK_PERIOD_MS);
-
     cam_err = esp_camera_init(&config);
     if (cam_err != ESP_OK) {
       Serial.printf("Camera init failed with error 0x%x", cam_err);
@@ -3281,18 +3272,21 @@ static esp_err_t download_handler(httpd_req_t *req) {
   // The is handled one piece at a time via calls to do_download
   // Read file in chunks (relaxes any constraint due to large file sizes)
   // and send HTTP response in chunked encoding 
-  char   dlchunk[8192];
+  size_t dlchunkfullsize = 65536;
+  uint8_t * dlchunk = (uint8_t*) heap_caps_calloc(dlchunkfullsize, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   size_t dlchunksize;
   do {
-    dlchunksize = fread(dlchunk, 1, sizeof(dlchunk), dlfile);
-    if (httpd_resp_send_chunk(req, dlchunk, dlchunksize) != ESP_OK) {
+    dlchunksize = fread(dlchunk, 1, dlchunkfullsize, dlfile);
+    if (httpd_resp_send_chunk(req, (const char *) dlchunk, dlchunksize) != ESP_OK) {
       fclose(dlfile);
+      free(dlchunk);
       return ESP_FAIL;
     }
   } while (dlchunksize != 0);
 
   httpd_resp_send_chunk(req, NULL, 0);
   fclose(dlfile);
+  free(dlchunk);
   return ESP_OK;
 }
 
@@ -3992,7 +3986,8 @@ void startCameraServer() {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
   config.max_uri_handlers = 15;
   config.max_resp_headers = 10;
-  config.stack_size = 12288;
+  //config.stack_size = 12288;
+  config.stack_size = 16384;
   //config.recv_wait_timeout=10;
   //config.send_wait_timeout=10;
   config.backlog_conn = 5;
