@@ -2,7 +2,7 @@
 
 ESP32-CAM Video Recorder
 
-07/20/2020 Ed Williams 
+11/08/2020 Ed Williams 
 
 This version of the ESP32-CAM Video Recorder is built on the work of many other listed below.
 It has been hugely modified to be a fairly complete web camera server with the following
@@ -12,7 +12,7 @@ capabilities:
   - Save up to 100 videos and 100 pictures on the SD card. Beyond that as more are saved 
     the oldest are deleted.
   - Removed the ability to change the size, frame rate and quality. They are permanently 
-    set to size 640x480, 125ms and quality 10.
+    set to size 640x480, 100ms and quality 10.
   - Recording times can be set from 10 to 300 seconds
   - Motion detection is available if a PIR motion sensor is connected to GPIO3 (U0RXD)
     (after the firmware is uploaded). 
@@ -190,8 +190,8 @@ end of others old comments *****************************************************
 // edit the below for local settings 
 
 // wifi info
-const char* ssid = "WilliamsHome4_EXT";
-const char* password = "3103864271";
+const char* ssid = "YourSSID";
+const char* password = "YourSSIDPwd";
 // fixed IP info
 const uint8_t IP_Address[4] = {192, 168, 2, 30};
 const uint8_t IP_Gateway[4] = {192, 168, 2, 1};
@@ -213,7 +213,7 @@ char email[40] = "DefaultMotionDetectEmail\@hotmail.com";  // this can be change
 
 // OTA update stuff
 const char* appName = "ESP32CamVideoRecorder";
-const char* appVersion = "1.4.2";
+const char* appVersion = "1.4.3";
 const char* firmwareUpdatePassword = "87654321";
 
 // should not need to edit the below
@@ -319,8 +319,11 @@ class SendEmail
 
 
 // don't change the below unless you are certain you know what you are doing
-int capture_interval = 125; // microseconds between captures (set to 8 frames per second)
-int total_frames = 480;     // 8 frames per second times 60 seconds
+int frames_per_second = 10; 
+//int capture_interval = 125; // microseconds between captures (set to 8 frames per second)
+int capture_interval = round(1000 / frames_per_second); // microseconds between captures 
+//int total_frames = 480;     // 8 frames per second times 60 seconds
+int total_frames = 60 * frames_per_second;  // frames per second times 60 seconds
 int recording = 0;          // turned off until start of setup
 int framesize = 6;          // 10 uxga, 7 SVGA, 6 VGA, 5 CIF
 int repeat = 0;             // no repeating videos at this time
@@ -903,7 +906,8 @@ void setup() {
     Serial.println("Loading initial values from EEPROM");
     EEPROM.get(EEPROM_LENGTH_ADDR, xlength);
     Serial.print( "Recording length set to " ); Serial.println( xlength );
-    total_frames = xlength * 8; // because the frame interval is 125ms
+    //total_frames = xlength * 8; // because the frame interval is 125ms
+    total_frames = xlength * frames_per_second; 
     EEPROM.get(EEPROM_EMAIL_ADDR, email);
     Serial.print( "Email address set to " ); Serial.println( email );
     EEPROM.get(EEPROM_MOTION_ADDR, motionDetect);
@@ -2789,7 +2793,7 @@ static esp_err_t streamavi_handler(httpd_req_t *req) {
   frameb_len = avi_fb_get();  // read first frame from file into frameb, returns size
 
   esp_err_t res = ESP_OK;
-  unsigned long st = millis();  // used to force sending one frame every 125ms
+  unsigned long st = millis();  // used to force sending one frame every capture_interval
   while ( frameb_len > 0 ) {
     // tell browser size of stream part
     size_t hlen = snprintf((char *)part_buf, 64, _STREAM_PART, frameb_len);
@@ -2812,9 +2816,9 @@ static esp_err_t streamavi_handler(httpd_req_t *req) {
     // It appears the network is not keeping up so sending every fourth frame
     frameb_len = avi_fb_get();  // read next frame from file into frameb, skip sending this one
 
-    // try to send one frame every 125ms
+    // try to send one frame every capture_interval
     st = millis() - st;
-    if ( st < 125 ) { delay( 125 - st ); }
+    if ( st < capture_interval ) { delay( capture_interval - st ); }
     st = millis();
   }
 
@@ -3492,7 +3496,7 @@ function do_triggertime() {
 <h1>ESP32-CAM Video Recorder</h1>
  <h2>Settings</h2>
  <table id="actions">
-   <tr><td>All video recordings default to VGA (640x480), one frame every 125ms for 60 seconds.<br>
+   <tr><td>All video recordings default to VGA (640x480), one frame every %ims for 60 seconds.<br>
            In the video name, L is length in seconds and M is size in megabytes. The default length can be changed.<br>
            Up to 100 videos and 100 pictures can be saved. After that the oldest are deleted as new are created.<br>
            If the stream fails to show on the main page, reload the page until it shows.<br>
@@ -3549,7 +3553,7 @@ function do_triggertime() {
   int used = SD_MMC.usedBytes() / (1024 * 1024);
   int total = SD_MMC.totalBytes() / (1024 * 1024);
   int free = total - used;
-  sprintf(the_page, msg1, xlength, motionDetect, triggerDetect, triggerH, triggerM, xlength, email, triggerH, triggerM, total, used, free, boottime);
+  sprintf(the_page, msg1, xlength, motionDetect, triggerDetect, triggerH, triggerM, capture_interval, xlength, email, triggerH, triggerM, total, used, free, boottime);
 
 }
 
@@ -3667,7 +3671,8 @@ static esp_err_t settings_handler(httpd_req_t *req) {
       // set new recording length      
       sprintf(the_page, "Recording length set to %i seconds", reclength);
       Serial.println( the_page );
-      total_frames = reclength * 8; // based on fixed frame interval of 125ms
+      //total_frames = reclength * 8; // based on fixed frame interval of 125ms
+      total_frames = reclength * frames_per_second; 
       xlength = reclength;
       EEPROM.put(EEPROM_LENGTH_ADDR, xlength);
       EEPROM.commit();
