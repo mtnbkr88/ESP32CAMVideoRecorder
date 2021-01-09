@@ -2,16 +2,16 @@
 
 ESP32-CAM Video Recorder
 
-03/25/2020 Ed Williams 
+11/08/2020 Ed Williams 
 
 This version of the ESP32-CAM Video Recorder is built on the work of many other listed in the sketch.
 It has been hugely modified to be a fairly complete web camera server with the following capabilities:
   - Record AVI video and peak, stream, download or delete the saved videos.
   - Take JPG pictures and view, download or delete the saved pictures.
-  - Up to 250 videos and 250 pictures can be saved on the SD card. Beyond that as more
+  - Up to 100 videos and 100 pictures can be saved on the SD card. Beyond that as more
     are saved the oldest are deleted.
   - Removed the ability to change the size, frame rate and quality. They are permanently 
-    set to size 640x480, 125ms and quality 10.
+    set to size 640x480, 100ms and quality 10.
   - Recording times can be set from 10 to 300 seconds
   - Motion detection is available if a PIR motion sensor is connected to GPIO3 (U0RXD)
     (after the firmware is uploaded). 
